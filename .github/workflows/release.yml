@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'          # 推送 v0.1.0 这类 tag 触发
+      - 'v*'
 
 concurrency:
   group: release-${{ github.ref }}
@@ -12,20 +12,20 @@ concurrency:
 jobs:
   build:
     permissions:
-      contents: write   # 允许创建 Release
+      contents: write
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-latest                      # Apple Silicon
+          - platform: macos-latest                       # Apple Silicon
             args: --target aarch64-apple-darwin
-          - platform: macos-latest                      # Intel Mac
+          - platform: macos-latest                       # Intel Mac
             args: --target x86_64-apple-darwin
-          - platform: ubuntu-22.04                      # Linux x64
+          - platform: ubuntu-22.04                       # Linux x64
             args: --bundles deb,rpm
-          - platform: ubuntu-22.04-arm                  # Linux ARM64
+          - platform: ubuntu-22.04-arm                   # Linux ARM64
             args: --bundles deb,rpm
-          - platform: windows-latest
+          - platform: windows-latest                     # Windows x64
             args: ''
 
     runs-on: ${{ matrix.platform }}
@@ -55,10 +55,17 @@ jobs:
           workspaces: './src-tauri -> target'
 
       - name: 安装 Linux 系统依赖
-        if: matrix.platform == 'ubuntu-22.04'
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            libxdo-dev
 
       - name: 安装前端依赖
         run: pnpm install --frozen-lockfile
@@ -68,8 +75,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: v__VERSION__            # __VERSION__ 自动替换为 tauri.conf.json 里的版本号
-          releaseName: 'EmbCalc v__VERSION__'
-          releaseDraft: true               # 草稿，人工确认后再发布
+          tagName: v__VERSION__
+          releaseName: 'EmbedCalc v__VERSION__'
+          releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}

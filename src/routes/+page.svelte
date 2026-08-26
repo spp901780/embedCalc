@@ -11,6 +11,13 @@
 	let focused = $state(false);
 	let inputEl: HTMLDivElement | undefined = $state();
 	let caretEl: HTMLDivElement | undefined = $state();
+	// 选区：anchor 为选区起点（null = 无选区），cursor 为另一端
+	let selAnchor = $state<number | null>(null);
+	let selection = $derived.by((): { start: number; end: number } | null => {
+		if (selAnchor === null || selAnchor === cursor) return null;
+		return { start: Math.min(selAnchor, cursor), end: Math.max(selAnchor, cursor) };
+	});
+	function clearSel() { selAnchor = null; }
 	// 位置记忆：tokenIndex -> 各进制下的逻辑位（从右数）
 	const digitMem = new Map<number, Partial<Record<Base, number>>>();
 
@@ -126,6 +133,9 @@
 
 	// ---------- 示例下拉菜单 ----------
 	let presetMenuOpen = $state(false);
+	let presetCloseTimer: ReturnType<typeof setTimeout> | undefined;
+	function openPreset() { clearTimeout(presetCloseTimer); presetMenuOpen = true; }
+	function scheduleClosePreset() { presetCloseTimer = setTimeout(() => { presetMenuOpen = false; }, 150); }
 
 	// ---------- 词元短暂高亮（Ctrl+←/→ 跳词后提示目标） ----------
 	let flashToken = $state<number | null>(null);
@@ -144,20 +154,43 @@
 		['64 位取值', 'x123456789ABCDEF0 >> 8 & xFFFFFFFF'],
 	];
 
-	// 词法分析失败时 tokens 为 null（输入框仍可编辑，只是无高亮/无求值）
-	let tokens = $derived.by((): Token[] | null => {
-		try { return tokenize(expr); } catch { return null; }
+	// 词法分析失败时 tokens 为 null（输入框仍可编辑，只是无高亮/无求值），同时捕获词法错误信息
+	let lex = $derived.by((): { tokens: Token[] | null; error: string | null } => {
+		try { return { tokens: tokenize(expr), error: null }; }
+		catch (e) { return { tokens: null, error: (e as Error).message }; }
 	});
+	let tokens = $derived(lex.tokens);
 
 	interface CalcResult { layout: ReturnType<typeof buildLayout> | null; result: bigint | null; error: string | null; }
 	let calc = $derived.by((): CalcResult => {
+		// 非法字符等词法错误优先报出
+		if (lex.error) return { layout: null, result: null, error: lex.error };
 		if (!tokens || tokens.length === 0) return { layout: tokens ? [] : null, result: null, error: null };
+		// 表达式以二元运算符结尾时多半是用户正在输入：忽略尾部运算符，按截断后的式子求值，不报错
+		let eff = tokens;
+		while (eff.length > 0) {
+			const last = eff[eff.length - 1];
+			if (last.kind === 'op') eff = eff.slice(0, -1); // 结尾二元运算符，忽略
+			else if (last.kind === 'lparen') eff = eff.slice(0, -1); // 结尾左括号（含 '(' 后紧跟运算符），忽略
+			else break;
+		}
+		if (eff.length === 0) return { layout: null, result: null, error: null };
 		try {
-			const value = parse(tokens);
-			return { layout: buildLayout(tokens), result: value, error: null };
+			const value = parse(eff);
+			return { layout: buildLayout(eff), result: value, error: null };
 		} catch (e) {
 			return { layout: null, result: null, error: (e as Error).message };
 		}
+	});
+
+	// 报错时保留最后一次成功的进制框布局与结果：框内容高不变，仅顶部浮出报错条，输入框不跳动
+	let lastLayout = $state<ReturnType<typeof buildLayout> | null>(null);
+	let lastResult = $state<bigint | null>(null);
+	let showError = $state<string | null>(null);
+	$effect(() => {
+		if (calc.layout) { lastLayout = calc.layout; lastResult = calc.result; showError = null; }
+		else if (calc.error) showError = calc.error;
+		else { lastLayout = null; lastResult = null; }
 	});
 
 	// 输入框渲染分段（token 间空白也保留，保证字符偏移 1:1）
@@ -205,21 +238,23 @@
 	// ---------- 编辑 ----------
 
 	function insertText(s: string) {
-		histPos = -1; browsing = false; // 手动编辑 → 退出历史浏览态
-		expr = expr.slice(0, cursor) + s + expr.slice(cursor);
-		cursor += s.length;
+		histPos = -1; browsing = false;
+		if (selection) { expr = expr.slice(0, selection.start) + s + expr.slice(selection.end); cursor = selection.start + s.length; clearSel(); }
+		else { expr = expr.slice(0, cursor) + s + expr.slice(cursor); cursor += s.length; }
 		autoJoin();
 	}
 
 	function deleteBackward() {
 		histPos = -1; browsing = false;
-		if (cursor > 0) { expr = expr.slice(0, cursor - 1) + expr.slice(cursor); cursor--; }
+		if (selection) { expr = expr.slice(0, selection.start) + expr.slice(selection.end); cursor = selection.start; clearSel(); }
+		else if (cursor > 0) { expr = expr.slice(0, cursor - 1) + expr.slice(cursor); cursor--; }
 		autoJoin();
 	}
 
 	function deleteForward() {
 		histPos = -1; browsing = false;
-		expr = expr.slice(0, cursor) + expr.slice(cursor + 1);
+		if (selection) { expr = expr.slice(0, selection.start) + expr.slice(selection.end); cursor = selection.start; clearSel(); }
+		else { expr = expr.slice(0, cursor) + expr.slice(cursor + 1); }
 		autoJoin();
 	}
 
@@ -291,17 +326,20 @@
 	function onKeydown(e: KeyboardEvent) {
 		if (e.metaKey || e.altKey) return; // 放行系统快捷键
 		if (e.ctrlKey) {
-			if (e.key === 'ArrowLeft') { wordJump(-1); e.preventDefault(); }
-			else if (e.key === 'ArrowRight') { wordJump(1); e.preventDefault(); }
+			if (e.key === 'a' || e.key === 'A') { selAnchor = 0; cursor = expr.length; e.preventDefault(); return; }
+			if (e.key === 'c' || e.key === 'C') { if (selection) { navigator.clipboard?.writeText(expr.slice(selection.start, selection.end)); } e.preventDefault(); return; }
+			if (e.key === 'x' || e.key === 'X') { if (selection) { navigator.clipboard?.writeText(expr.slice(selection.start, selection.end)); insertText(''); } e.preventDefault(); return; }
+			if (e.key === 'ArrowLeft') { wordJump(-1); clearSel(); e.preventDefault(); }
+			else if (e.key === 'ArrowRight') { wordJump(1); clearSel(); e.preventDefault(); }
 			else if (e.key === 'ArrowUp') { histOlder(); e.preventDefault(); }
 			else if (e.key === 'ArrowDown') { histNewer(); e.preventDefault(); }
 			return; // 其余 Ctrl 组合放行
 		}
 		const k = e.key;
-		if (k === 'ArrowLeft') { cursor = Math.max(0, cursor - 1); }
-		else if (k === 'ArrowRight') { cursor = Math.min(expr.length, cursor + 1); }
-		else if (k === 'Home') { cursor = 0; }
-		else if (k === 'End') { cursor = expr.length; }
+		if (k === 'ArrowLeft') { cursor = Math.max(0, cursor - 1); clearSel(); }
+		else if (k === 'ArrowRight') { cursor = Math.min(expr.length, cursor + 1); clearSel(); }
+		else if (k === 'Home') { cursor = 0; clearSel(); }
+		else if (k === 'End') { cursor = expr.length; clearSel(); }
 		else if (k === 'ArrowUp' || k === 'ArrowDown') {
 			// 光标在数字内 → 切换该数字进制；不在数字上 → 不响应（历史浏览走 Ctrl+↑/↓）
 			const info = tokens ? locateNum(tokens, cursor) : null;
@@ -329,6 +367,7 @@
 	function onMousedown(e: MouseEvent) {
 		e.preventDefault();
 		inputEl?.focus();
+		clearSel();
 		const doc = document as Document & {
 			caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
 		};
@@ -375,11 +414,11 @@
 		<h1>EmbedCalc</h1>
 		<!-- 示例移入下拉菜单，为历史记录面板腾出空间 -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div class="preset-wrap" role="presentation" onmouseleave={() => (presetMenuOpen = false)}>
+		<div class="preset-wrap" role="presentation" onmouseenter={openPreset} onmouseleave={scheduleClosePreset}>
 			<button
 				class="preset-toggle"
 				aria-expanded={presetMenuOpen}
-				onclick={() => (presetMenuOpen = !presetMenuOpen)}
+				onclick={() => { clearTimeout(presetCloseTimer); presetMenuOpen = !presetMenuOpen; }}
 			>示例 ▾</button>
 			{#if presetMenuOpen}
 				<div class="preset-menu">
@@ -455,6 +494,9 @@
 						data-start={seg.start}
 					>{seg.text}</span>
 				{/each}
+				{#if selection}
+					<div class="sel-highlight" style="left: calc({selection.start} * 1ch); width: calc({selection.end - selection.start} * 1ch)"></div>
+				{/if}
 				{#if focused}
 					<div class="caret" bind:this={caretEl} style="left: calc({cursor} * 1ch)"></div>
 				{/if}
@@ -481,24 +523,28 @@
 				</div>
 			{/if}
 		</div>
-		{#if calc.result !== null && calc.result !== undefined}
+		{#if calc.result ?? lastResult}
+			{@const r = calc.result ?? lastResult!}
 			<div class="result" title="计算结果">
-				<!-- 当前结果同时显示三种进制 -->
-				<div class="res-line"><span class="lbl">hex</span><code>{hexText(calc.result)}</code></div>
-				<div class="res-line"><span class="lbl">dec</span><code>{decText(calc.result)}</code></div>
-				<div class="res-line"><span class="lbl">bin</span><code class="bin">{resultBinLines(calc.result).join(' ')}</code></div>
+				<!-- 当前结果同时显示三种进制（报错时保留最后结果，面板高度不变） -->
+				<div class="res-line"><span class="lbl">hex</span><code>{hexText(r)}</code></div>
+				<div class="res-line"><span class="lbl">dec</span><code>{decText(r)}</code></div>
+				<div class="res-line"><span class="lbl">bin</span><code class="bin">{resultBinLines(r).join(' ')}</code></div>
 			</div>
+		{:else}
+			<!-- 占位：保持 input-row 行高恒定，结果面板出现/消失时输入框不跳动 -->
+			<div class="result result-placeholder" aria-hidden="true"></div>
 		{/if}
 	</div>
 
-	{#if calc.error}
-		<div class="error">{calc.error}</div>
-	{/if}
-
-	{#if calc.layout}
-		<section class="views">
+	<!-- 进制框常驻渲染：报错时保留最后布局、顶部浮出报错条，保持框高不变，避免输入框上下跳动 -->
+	<section class="views" class:has-error={showError !== null}>
+		{#if showError}
+			<div class="error-float"><div class="error">{showError}</div></div>
+		{/if}
+		{#if calc.layout ?? lastLayout}
 			<div class="band">
-				{#each calc.layout as chunk}
+				{#each calc.layout ?? lastLayout ?? [] as chunk}
 					{#if chunk.type === 'num'}
 						<div class="num" class:hl={highlight?.tokenIndex === chunk.tokenIndex}>
 							<div class="row hex">{#each [...chunk.hex] as ch, ci}<span class:hl={highlight?.tokenIndex === chunk.tokenIndex && highlight.nibble !== null && ci >= 2 && chunk.hex.length - 1 - ci === highlight.nibble}>{ch}</span>{/each}</div>
@@ -517,8 +563,8 @@
 					{/if}
 				{/each}
 			</div>
-		</section>
-	{/if}
+		{/if}
+	</section>
 
 	<footer>
 		光标移到数字内部，按 ↑/↓ 切换该数字进制·
@@ -590,13 +636,15 @@
 	/* 光标在数字内时，数字中心上方 ▲ / 下方 ▼（指示可按 ↑/↓ 切换进制） */
 	.base-hint {
 		position: absolute;
-		line-height: 1; color: #4d9e6e;
+		height: 8px; line-height: 8px; /* 与 glyph 等高，垂直居中不受父行高影响 */
+		color: #4d9e6e;
 		transform: translateX(-50%); /* 水平居中于数字中心 */
 		pointer-events: none; user-select: none;
 	}
-	.base-hint span { font-size: 8px; }
-	.base-hint.hint-up { top: -0.6em; }
-	.base-hint.hint-down { top: calc(1.5em + 1px); }
+	.base-hint span { font-size: 8px; display: inline-block; line-height: 8px; vertical-align: top; }
+	/* 对称定位：以文本行（高 1.5em = 25.5px）为基准，上下各露出相同的 3.5px 间距 */
+	.base-hint.hint-up { top: -11px; bottom: auto; }
+	.base-hint.hint-down { top: auto; bottom: -11px; }
 	/* Ctrl+←/→ 跳词后目标词元的短暂高亮 */
 	.expr-input .flash { animation: token-flash 0.5s ease-out; border-radius: 3px; }
 	@keyframes token-flash {
@@ -622,14 +670,25 @@
 		animation: blink 1.1s ease-in-out infinite;
 		pointer-events: none;
 	}
+	/* 选区高亮 */
+	.sel-highlight {
+		position: absolute; top: 0; bottom: 0;
+		background: rgba(77, 158, 110, 0.25);
+		border-radius: 2px;
+		pointer-events: none;
+	}
 	@keyframes blink { 50% { opacity: 0.2; } }
 
+	/* min-height 与三行结果的自然高度一致，保证结果面板出现/消失/报错切换时 input-row 行高恒定 */
 	.result {
-		flex: 1; min-width: 0;
+		flex: 1; min-width: 0; box-sizing: border-box;
+		min-height: 77px;
 		display: flex; flex-direction: column; justify-content: center;
 		background: #10131a; border: 1px solid #2e5540; border-radius: 8px;
 		padding: 8px 12px; overflow-x: auto;
 	}
+	/* 无结果时的占位框：透明无边框，仅撑开行高与输入框一致 */
+	.result-placeholder { background: transparent; border-color: transparent; }
 	.res-line { display: flex; gap: 10px; align-items: baseline; margin: 1px 0; white-space: nowrap; }
 	.lbl { width: 26px; font-size: 10px; color: #66707c; text-align: right; }
 	.res-line code {
@@ -638,11 +697,20 @@
 	}
 	.res-line code.bin { font-size: 11px; color: #7ee0a3; letter-spacing: 0.02em; }
 
+	/* 报错信息浮动在进制框内顶部（不占布局空间），框高不变、输入框不跳动 */
+	.error-float { position: sticky; top: 0; z-index: 5; height: 0; overflow: visible; }
+	/* 报错时进制解析内容模糊+降透明度，避免与报错信息重叠、增强可读性 */
+	.views.has-error .band {
+		filter: blur(2px) saturate(0.6);
+		opacity: 0.3;
+		transition: filter 0.15s, opacity 0.15s;
+	}
 	.error {
-		flex: 0 0 auto;
-		margin-top: 8px; padding: 8px 12px; font-size: 13px;
+		display: inline-block;
+		padding: 8px 12px; font-size: 13px;
 		color: #ff9d8a; background: #2b1d1a; border: 1px solid #54322b;
 		border-radius: 6px; font-family: ui-monospace, monospace;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 	}
 
 	/* 历史记录面板：占据剩余空间，至少两行高度（2×22px 行高 + 头部），内部滚动 */
@@ -689,8 +757,11 @@
 	.hist-item.draft { border-top: 1px dashed #2c333d; margin-top: 2px; padding-top: 4px; }
 	.hist-draft-tag { flex: 0 0 auto; font-size: 10px; color: #4d9e6e; font-style: normal; }
 
+	/* 进制框：预留约 32 位数字高度（hex/dec 两行 + 4 行 bin），输入时框高不变、输入框不跳动 */
 	.views {
 		flex: 0 0 auto;
+		box-sizing: border-box;
+		min-height: 152px;
 		margin-top: 14px;
 		background: #10131a; border: 1px solid #262c36; border-radius: 10px;
 		padding: 16px 16px; overflow-x: auto;
