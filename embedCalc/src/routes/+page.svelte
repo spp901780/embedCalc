@@ -1,7 +1,7 @@
 <script lang="ts">
 	import {
 		tokenize, parse, buildLayout, hexText, decText, binLines, resultBinLines,
-		numText, digitLen, digitToOffset, locateNum, convertDigit, joinBinSpaces,
+		numText, digitLen, digitToOffset, locateNum, convertDigit, bitMarkPositions,
 		type Base, type Token
 	} from '$lib/calc';
 
@@ -13,6 +13,126 @@
 	let caretEl: HTMLDivElement | undefined = $state();
 	// 位置记忆：tokenIndex -> 各进制下的逻辑位（从右数）
 	const digitMem = new Map<number, Partial<Record<Base, number>>>();
+
+	// ---------- 历史记录（localStorage 持久化，与原型约定一致：Web 版 localStorage） ----------
+	const HIST_KEY = 'embedcalc.history';
+	interface HistEntry { expr: string; res: string; hex: boolean; }
+	let history = $state<HistEntry[]>(loadHistory());
+	// -1 = 正常编辑态；-2 = 浏览中的草稿行（自动缓存，永不入库）；-3 = 点击回填；>=0 = 浏览历史第 i 条
+	let histPos = $state(-1);
+	let histListEl: HTMLUListElement | undefined = $state();
+	// Ctrl+↑ 进入历史浏览时，把当前算式缓存为末行草稿（永远只保留一行、不写入持久历史）
+	let draft = $state('');
+	let browsing = $state(false);
+
+	// 表达式含 2/16 进制数 → 结果显示 hex，否则显示十进制
+	function resultIsHex(toks: Token[] | null): boolean {
+		return toks?.some(t => t.kind === 'num' && (t.base === 2 || t.base === 16)) ?? false;
+	}
+	function loadHistory(): HistEntry[] {
+		try {
+			const raw = localStorage.getItem(HIST_KEY);
+			if (!raw) return [];
+			const arr = JSON.parse(raw) as unknown[];
+			// 兼容旧版纯字符串记录：尝试补算结果
+			return arr
+				.map((e): HistEntry | null => {
+					if (typeof e === 'string') {
+						try {
+							const toks = tokenize(e);
+							const hex = resultIsHex(toks);
+							return { expr: e, res: (hex ? hexText : decText)(parse(toks)), hex };
+						} catch { return { expr: e, res: '', hex: false }; }
+					}
+					if (e && typeof e === 'object' && typeof (e as HistEntry).expr === 'string') return e as HistEntry;
+					return null;
+				})
+				.filter((e): e is HistEntry => e !== null);
+		} catch { return []; }
+	}
+	function persistHistory() {
+		try { localStorage.setItem(HIST_KEY, JSON.stringify(history)); } catch { /* ignore */ }
+	}
+	// Enter：求值成功且表达式非空时存入历史（去重、时间序旧→新、最多 50 条），结果一并记录
+	function saveToHistory(e: string, result: bigint) {
+		const t = e.trim();
+		if (!t) return;
+		const hex = resultIsHex(tokens);
+		const entry: HistEntry = { expr: t, res: (hex ? hexText : decText)(result), hex };
+		history = [...history.filter(h => h.expr !== t), entry].slice(-50);
+		histPos = -1; browsing = false;
+		if (t === draft) draft = ''; // 草稿已正式保存 → 缓存行清空
+		persistHistory();
+		// 去重时长度可能不变，兜底确保滚到最新
+		setTimeout(() => { if (histListEl) histListEl.scrollTop = histListEl.scrollHeight; }, 0);
+	}
+	// Ctrl+↑ 进入历史浏览：首次把当前算式缓存为末行草稿（不入持久历史，永远只有一行）
+	function histOlder() {
+		if (history.length === 0) return;
+		if (!browsing) { draft = expr; browsing = true; histPos = history.length - 1; }
+		else if (histPos < 0) return; // 已在草稿行
+		else histPos = Math.max(0, histPos - 1);
+		expr = history[histPos].expr;
+		cursor = expr.length;
+	}
+	// Ctrl+↓ 向更新方向翻；越过最新一条 → 恢复草稿算式（仍停留在草稿行），再按一次退出浏览
+	function histNewer() {
+		if (!browsing) return;
+		if (histPos < 0) { exitBrowse(); return; }
+		if (histPos >= history.length - 1) { histPos = -2; expr = draft; }
+		else { histPos++; expr = history[histPos].expr; }
+		cursor = expr.length;
+	}
+	function exitBrowse() {
+		if (!browsing) return;
+		browsing = false; histPos = -1;
+		expr = draft; cursor = expr.length;
+	}
+	function clickHistoryItem(i: number) {
+		if (!browsing) { draft = expr; browsing = true; }
+		histPos = i;
+		expr = history[i].expr;
+		cursor = expr.length;
+		inputEl?.focus();
+	}
+	function clearHistory() {
+		history = [];
+		histPos = -1; browsing = false; draft = '';
+		persistHistory();
+	}
+	// 历史列表滚动逻辑（统一处理，避免多个 $effect 竞争）：
+	//  - 进入浏览态 → 先滚到底部（最新记录+草稿行同屏），再 scrollIntoView 到当前行
+	//  - 正常态 + 新增记录 → 滚到底部
+	//  - 点击/翻阅 → scrollIntoView 保持当前行可见
+	$effect(() => {
+		const pos = histPos;
+		const len = history.length;
+		const el = histListEl;
+		if (!el) return;
+		if (browsing) {
+			// 浏览态：滚到底部让草稿行可见
+			el.scrollTop = el.scrollHeight;
+			// 如果当前浏览的不是草稿行，scrollIntoView 保持该行可见
+			if (pos >= 0) {
+				const li = el.children[pos] as HTMLElement | undefined;
+				li?.querySelector('.hist-item')?.scrollIntoView({ block: 'nearest' });
+			}
+		} else if (len > 0) {
+			el.scrollTop = el.scrollHeight;
+		}
+	});
+
+	// ---------- 示例下拉菜单 ----------
+	let presetMenuOpen = $state(false);
+
+	// ---------- 词元短暂高亮（Ctrl+←/→ 跳词后提示目标） ----------
+	let flashToken = $state<number | null>(null);
+	let flashTimer: ReturnType<typeof setTimeout> | undefined;
+	function flash(ti: number) {
+		clearTimeout(flashTimer);
+		flashToken = ti;
+		flashTimer = setTimeout(() => { flashToken = null; }, 500);
+	}
 
 	const presets: [string, string][] = [
 		['寄存器位操作', 'xDEADBEEF + b110 ^ x2 << 2'],
@@ -39,18 +159,32 @@
 	});
 
 	// 输入框渲染分段（token 间空白也保留，保证字符偏移 1:1）
-	interface Seg { text: string; cls: string; start: number; }
+	interface Seg { text: string; cls: string; start: number; tokenIndex: number | null; }
 	let segments = $derived.by((): Seg[] => {
-		if (!tokens) return [{ text: expr, cls: 'gap', start: 0 }];
+		if (!tokens) return [{ text: expr, cls: 'gap', start: 0, tokenIndex: null }];
 		const segs: Seg[] = [];
 		let p = 0;
-		for (const t of tokens) {
-			if (t.start > p) segs.push({ text: expr.slice(p, t.start), cls: 'gap', start: p });
-			segs.push({ text: t.text, cls: t.kind === 'num' ? `num b${t.base}` : t.kind, start: t.start });
+		tokens.forEach((t, ti) => {
+			if (t.start > p) segs.push({ text: expr.slice(p, t.start), cls: 'gap', start: p, tokenIndex: null });
+			segs.push({ text: t.text, cls: t.kind === 'num' ? `num b${t.base}` : t.kind, start: t.start, tokenIndex: ti });
 			p = t.end;
-		}
-		if (p < expr.length) segs.push({ text: expr.slice(p), cls: 'gap', start: p });
+		});
+		if (p < expr.length) segs.push({ text: expr.slice(p), cls: 'gap', start: p, tokenIndex: null });
 		return segs;
+	});
+
+	// 进制切换提示：光标在数字内时，数字中心上方 ▲（可按↑）、下方 ▼（可按↓）
+	let hintInfo = $derived.by(() => {
+		if (!tokens || !focused) return null;
+		const info = locateNum(tokens, cursor);
+		if (!info) return null;
+		const order: Base[] = [16, 10, 2];
+		const i = order.indexOf(info.token.base!);
+		return {
+			center: info.token.start + info.token.text.length / 2, // ch 单位，可为半字符
+			canUp: i > 0,          // 未到 hex 顶部
+			canDown: i < order.length - 1, // 未到 bin 底部
+		};
 	});
 
 	// 联动高亮：光标在数字内部 → 该 token + 对应 nibble
@@ -69,42 +203,53 @@
 	// ---------- 编辑 ----------
 
 	function insertText(s: string) {
+		histPos = -1; browsing = false; // 手动编辑 → 退出历史浏览态
 		expr = expr.slice(0, cursor) + s + expr.slice(cursor);
 		cursor += s.length;
 		autoJoin();
 	}
 
 	function deleteBackward() {
+		histPos = -1; browsing = false;
 		if (cursor > 0) { expr = expr.slice(0, cursor - 1) + expr.slice(cursor); cursor--; }
 		autoJoin();
 	}
 
 	function deleteForward() {
+		histPos = -1; browsing = false;
 		expr = expr.slice(0, cursor) + expr.slice(cursor + 1);
 		autoJoin();
 	}
 
 	// 二进制显示模式下，空格分隔的相邻 bin 段自动拼接为连续位流
+	// 用 tokenize 检测相邻 bin num token，如果有空格分隔就合并
 	function autoJoin() {
-		let joined = joinBinSpaces(expr);
-		if (joined === null) return;
-		// 可能有多个可合并点，循环处理
-		while (joined !== null) {
-			const oldLen = expr.length;
-			expr = joined;
-			cursor -= oldLen - joined.length; // 空格被移除，光标前移
-			joined = joinBinSpaces(expr);
-		}
+		try {
+			const toks = tokenize(expr);
+			for (let i = 0; i < toks.length - 1; i++) {
+				const a = toks[i], b = toks[i + 1];
+				if (a.kind === 'num' && a.base === 2 && b.kind === 'num' && b.base === 2) {
+					const gap = expr.slice(a.end, b.start);
+					if (/^\s+$/.test(gap)) {
+						const removeStart = a.end;
+						const removeLen = gap.length + 1; // 去掉空格 + 第二个 b 前缀
+						expr = expr.slice(0, removeStart) + expr.slice(removeStart + removeLen);
+						if (cursor > removeStart) cursor = Math.max(removeStart, cursor - removeLen);
+						autoJoin(); // 递归合并更多
+						return;
+					}
+				}
+			}
+		} catch { /* ignore parse errors */ }
 	}
 
-	// ↑: hex→bin→dec，↓: dec→bin→hex，到顶/到底即停，不循环（与视图区顺序一致）
+	// ↑: hex→dec→bin，↓: bin→dec→hex，到头/到尾即停，不循环（与显示顺序一致）
 	function cycleBase(dir: 1 | -1) {
 		if (!tokens) return;
 		const info = locateNum(tokens, cursor);
-		// TODO(待办#2): 光标不在数字上时，↑/↓ 翻历史记录
 		if (!info) return;
 		const { index, token, digit } = info;
-		const order: Base[] = [16, 2, 10]; // ↓ 沿视图顺序，↑ 逆序
+		const order: Base[] = [16, 10, 2]; // ↓ 沿显示顺序 hex→dec→bin，↑ 逆序
 		const i = order.indexOf(token.base!);
 		const ni = i + dir;
 		if (ni < 0 || ni >= order.length) return; // 已到 hex/dec，不再切换
@@ -121,20 +266,21 @@
 		cursor = digitToOffset(nt, d);
 	}
 
-	// Ctrl+←/→：跳到上一个/下一个 token 边界
+	// Ctrl+←/→：跳到上一个/下一个 token 起始位置，并短暂闪烁目标词元
 	function wordJump(dir: -1 | 1) {
 		if (!tokens || tokens.length === 0) { cursor = dir < 0 ? 0 : expr.length; return; }
-		const edges: number[] = [];
-		for (const t of tokens) edges.push(t.start, t.end);
-		edges.sort((a, b) => a - b);
+		// 只用 token 的 start 作为跳转目标
+		const starts = tokens.map(t => t.start);
 		if (dir < 0) {
-			for (let i = edges.length - 1; i >= 0; i--) {
-				if (edges[i] < cursor) { cursor = edges[i]; return; }
+			// 向左：找 cursor 之前的最近 token 起始（允许等于 cursor 时跳到再前一个）
+			for (let i = starts.length - 1; i >= 0; i--) {
+				if (starts[i] < cursor) { cursor = starts[i]; flash(i); return; }
 			}
 			cursor = 0;
 		} else {
-			for (const e of edges) {
-				if (e > cursor) { cursor = e; return; }
+			// 向右：跳过当前 token，直接到下一个 token 起始
+			for (let i = 0; i < starts.length; i++) {
+				if (starts[i] > cursor) { cursor = starts[i]; flash(i); return; }
 			}
 			cursor = expr.length;
 		}
@@ -145,6 +291,8 @@
 		if (e.ctrlKey) {
 			if (e.key === 'ArrowLeft') { wordJump(-1); e.preventDefault(); }
 			else if (e.key === 'ArrowRight') { wordJump(1); e.preventDefault(); }
+			else if (e.key === 'ArrowUp') { histOlder(); e.preventDefault(); }
+			else if (e.key === 'ArrowDown') { histNewer(); e.preventDefault(); }
 			return; // 其余 Ctrl 组合放行
 		}
 		const k = e.key;
@@ -152,11 +300,18 @@
 		else if (k === 'ArrowRight') { cursor = Math.min(expr.length, cursor + 1); }
 		else if (k === 'Home') { cursor = 0; }
 		else if (k === 'End') { cursor = expr.length; }
-		else if (k === 'ArrowUp') { cycleBase(-1); }
-		else if (k === 'ArrowDown') { cycleBase(1); }
+		else if (k === 'ArrowUp' || k === 'ArrowDown') {
+			// 光标在数字内 → 切换该数字进制；不在数字上 → 不响应（历史浏览走 Ctrl+↑/↓）
+			const info = tokens ? locateNum(tokens, cursor) : null;
+			if (info) cycleBase(k === 'ArrowUp' ? -1 : 1);
+		}
+		else if (k === 'Escape') { exitBrowse(); return; }
 		else if (k === 'Backspace') { deleteBackward(); }
 		else if (k === 'Delete') { deleteForward(); }
-		else if (k === 'Enter') { /* 单行输入，忽略 */ }
+		else if (k === 'Enter') {
+			// 求值成功后连同结果一起存入历史
+			if (calc.result !== null) saveToHistory(expr, calc.result);
+		}
 		else if (k.length === 1) { insertText(k); }
 		else return;
 		e.preventDefault();
@@ -216,13 +371,65 @@
 <main>
 	<header>
 		<h1>嵌入式混合进制计算器</h1>
+		<!-- 示例移入下拉菜单，为历史记录面板腾出空间 -->
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div class="preset-wrap" role="presentation" onmouseleave={() => (presetMenuOpen = false)}>
+			<button
+				class="preset-toggle"
+				aria-expanded={presetMenuOpen}
+				onclick={() => (presetMenuOpen = !presetMenuOpen)}
+			>示例 ▾</button>
+			{#if presetMenuOpen}
+				<div class="preset-menu">
+					{#each presets as [name, p]}
+						<button onclick={() => { expr = p; histPos = -1; cursor = p.length; presetMenuOpen = false; inputEl?.focus(); }}>{name}</button>
+					{/each}
+				</div>
+			{/if}
+		</div>
 	</header>
 
-	<div class="presets">
-		{#each presets as [name, p]}
-			<button onclick={() => { expr = p; cursor = p.length; inputEl?.focus(); }}>{name}</button>
-		{/each}
-	</div>
+	<!-- 历史记录面板：位于输入框上方，结果随算式记录，向上滚动刷新 -->
+	<!-- 手动 Enter 保存的记录在上；Ctrl+↑ 浏览时末行自动缓存当前算式（草稿行，不入库） -->
+	<!-- 历史记录常驻面板：填充窗口剩余空间，优先保证输入框与进制框完整显示 -->
+	<section class="history">
+		<div class="hist-head">
+			<span class="hist-title">历史记录 <span class="hist-hint">Enter 保存 · Ctrl+↑/↓ 翻阅 · 点击回填 · Esc 退出</span></span>
+			{#if history.length > 0}
+				<button class="hist-clear" onclick={clearHistory}>清空</button>
+			{/if}
+		</div>
+		{#if history.length > 0 || (browsing && draft !== '')}
+			<ul class="hist-list" bind:this={histListEl}>
+				{#each history as h, i}
+					<li>
+						<button
+							class="hist-item"
+							class:current={histPos === i}
+							onclick={() => clickHistoryItem(i)}
+						>
+							<span class="hist-expr">{h.expr}</span>
+							<span class="hist-res" class:hex-res={h.hex}>{h.res}</span>
+						</button>
+					</li>
+				{/each}
+				{#if browsing && draft !== ''}
+					<li>
+						<button
+							class="hist-item draft"
+							class:current={histPos === -2}
+							onclick={() => { histPos = -2; expr = draft; cursor = expr.length; inputEl?.focus(); }}
+						>
+							<span class="hist-expr">{draft}</span>
+							<span class="hist-draft-tag">当前算式</span>
+						</button>
+					</li>
+				{/if}
+			</ul>
+		{:else}
+			<div class="hist-empty">暂无记录 —— 输入算式后按 Enter 保存</div>
+		{/if}
+	</section>
 
 	<div class="input-row">
 		<!-- 自绘输入框：keydown 接管 + 绝对定位光标条。等宽字体下光标 left = cursor × 1ch -->
@@ -241,10 +448,22 @@
 		>
 			<div class="inner">
 				{#each segments as seg}
-					<span class={seg.cls} data-start={seg.start}>{seg.text}</span>
+					<span
+						class="{seg.cls}{' '}{seg.tokenIndex === flashToken ? 'flash' : ''}"
+						data-start={seg.start}
+					>{seg.text}</span>
 				{/each}
 				{#if focused}
 					<div class="caret" bind:this={caretEl} style="left: calc({cursor} * 1ch)"></div>
+				{/if}
+				<!-- 光标在数字内时：数字中心上方 ▲（可按↑切换）、下方 ▼（可按↓切换） -->
+				{#if hintInfo}
+					{#if hintInfo.canUp}
+						<div class="base-hint hint-up" style="left: calc({hintInfo.center} * 1ch)" title="↑ 向 hex 切换"><span>▲</span></div>
+					{/if}
+					{#if hintInfo.canDown}
+						<div class="base-hint hint-down" style="left: calc({hintInfo.center} * 1ch)" title="↓ 向 bin 切换"><span>▼</span></div>
+					{/if}
 				{/if}
 			</div>
 			<!-- bin 显示时，对应数字下方用小子标注位数（每 8 位一组，标注组末位 bit 号） -->
@@ -252,11 +471,8 @@
 				<div class="bitmarks" aria-hidden="true">
 					{#each tokens as t}
 						{#if t.kind === 'num' && t.base === 2}
-							{@const len = digitLen(t)}
-							{@const n8 = Math.ceil(len / 8)}
-							<!-- bin 文本布局: 1ch 前缀 + 每 8 位 9ch（含 '_'） -->
-							{#each Array(n8) as _, g}
-								<span class="bitmark" style="left: calc({t.start + 1 + g * 9 + 8} * 1ch)">{Math.min((g + 1) * 8 - 1, len - 1)}</span>
+							{#each bitMarkPositions(t.text) as m}
+								<span class="bitmark-anchor" style="left: calc({t.start + m.pos} * 1ch + 0.5ch)"><span class="bitmark">{m.count}</span></span>
 							{/each}
 						{/if}
 					{/each}
@@ -265,6 +481,7 @@
 		</div>
 		{#if calc.result !== null && calc.result !== undefined}
 			<div class="result" title="计算结果">
+				<!-- 当前结果同时显示三种进制 -->
 				<div class="res-line"><span class="lbl">hex</span><code>{hexText(calc.result)}</code></div>
 				<div class="res-line"><span class="lbl">dec</span><code>{decText(calc.result)}</code></div>
 				<div class="res-line"><span class="lbl">bin</span><code class="bin">{resultBinLines(calc.result).join(' ')}</code></div>
@@ -302,8 +519,9 @@
 	{/if}
 
 	<footer>
-		光标移到数字内部，↑ 向 hex、↓ 向 dec 切换显示进制（bin 居中，不循环）·
-		Ctrl+←/→ 跳转到上/下一个词元 · bin 空格自动连接 · 每 8 位下方标注位号 · 纯数学求值，无位宽截断
+		光标移到数字内部，按 ↑/↓ 切换该数字进制（hex→dec→bin，不循环）·
+		Ctrl+←/→ 快速跳转词元 · Ctrl+↑/↓ 翻阅历史记录（当前算式自动缓存到末行）·
+		Enter 保存算式到历史 · Esc 退出历史浏览 · bin 空格自动连接 · 每 8 位下方标注位号 · 纯数学求值，无位宽截断
 	</footer>
 </main>
 
@@ -314,31 +532,48 @@
 		color: #d7dce2;
 		font-family: system-ui, sans-serif;
 	}
+	:global(html, body) { height: 100%; }
+	/* 视口高度弹性列布局：历史面板填充剩余空间，输入框与进制框优先完整显示 */
 	main {
-		max-width: 1080px;
-		margin: 0 auto;
-		padding: 28px 24px 60px;
+		box-sizing: border-box;
+		height: 100vh; max-width: 1080px;
+		margin: 0 auto; padding: 16px 24px 14px;
+		display: flex; flex-direction: column;
 	}
-	header { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
-	h1 { font-size: 20px; font-weight: 600; margin: 0 0 4px; }
+	header { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; flex: 0 0 auto; margin-bottom: 12px; }
+	h1 { font-size: 20px; font-weight: 600; margin: 0; }
 
-	.presets { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0 10px; }
-	.presets button {
+	/* 示例下拉菜单（原预设按钮行已移除，为历史面板腾出空间） */
+	.preset-wrap { position: relative; }
+	.preset-toggle {
 		background: #1d2128; color: #9aa4af; border: 1px solid #2c333d;
 		border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer;
 	}
-	.presets button:hover { color: #d7dce2; border-color: #46505c; }
+	.preset-toggle:hover { color: #d7dce2; border-color: #46505c; }
+	.preset-menu {
+		position: absolute; top: calc(100% + 6px); left: 0; z-index: 20;
+		display: flex; flex-direction: column; gap: 2px;
+		min-width: 300px; padding: 6px;
+		background: #1a1f26; border: 1px solid #333a44; border-radius: 8px;
+		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+	}
+	.preset-menu button {
+		text-align: left; background: transparent; color: #9aa4af;
+		border: none; border-radius: 5px; padding: 6px 10px;
+		font-size: 12px; cursor: pointer; white-space: nowrap;
+	}
+	.preset-menu button:hover { background: #242b35; color: #d7dce2; }
 
-	.input-row { display: flex; gap: 12px; align-items: flex-start; }
+	.input-row { display: flex; gap: 12px; align-items: flex-start; flex: 0 0 auto; margin-top: 14px; }
 
 	/* 自绘输入框 */
 	.expr-input {
 		flex: 1; min-width: 0; box-sizing: border-box;
 		background: #10131a; color: #e8edf2;
 		border: 1px solid #333a44; border-radius: 8px;
-		padding: 12px 14px; font-size: 17px;
+		padding: 14px 14px 12px 14px; font-size: 17px;
 		font-family: ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, monospace;
-		outline: none; overflow-x: auto; overflow-y: hidden;
+		outline: none; overflow-x: auto; overflow-y: visible;
 		cursor: text;
 	}
 	.expr-input.focused { border-color: #4d9e6e; }
@@ -350,28 +585,48 @@
 	.expr-input .num.b10 { color: #e8c07d; }
 	.expr-input .num.b2 { color: #7ee0a3; }
 	.expr-input .op, .expr-input .lparen, .expr-input .rparen { color: #8b95a1; }
-	/* bin 位号标注 */
-	.bitmarks { position: relative; height: 0; }
+	/* 光标在数字内时，数字中心上方 ▲ / 下方 ▼（指示可按 ↑/↓ 切换进制） */
+	.base-hint {
+		position: absolute;
+		line-height: 1; color: #4d9e6e;
+		transform: translateX(-50%); /* 水平居中于数字中心 */
+		pointer-events: none; user-select: none;
+	}
+	.base-hint span { font-size: 8px; }
+	.base-hint.hint-up { top: -0.6em; }
+	.base-hint.hint-down { top: calc(1.5em + 1px); }
+	/* Ctrl+←/→ 跳词后目标词元的短暂高亮 */
+	.expr-input .flash { animation: token-flash 0.5s ease-out; border-radius: 3px; }
+	@keyframes token-flash {
+		0% { background: rgba(77, 158, 110, 0.45); }
+		100% { background: transparent; }
+	}
+	/* bin 位号标注：容器与文字同字号保证 ch 对齐，内部缩放显示 */
+	/* 位号显示在数字下方：容器预留实际高度，标注不会被裁剪、无需滚动 */
+	.bitmarks { position: relative; height: 13px; font-size: 17px; }
+	.bitmark-anchor {
+		position: absolute; top: 1px;
+		transform: translateX(-50%); /* 水平居中于对应数字的正下方 */
+		line-height: 1;
+		pointer-events: none; white-space: pre;
+	}
 	.bitmark {
-		position: absolute; top: -2px;
 		font-size: 9px; line-height: 1; color: #4a6b57;
 		font-family: ui-monospace, monospace;
-		pointer-events: none; white-space: pre;
-		transform: translateX(-100%);
 	}
 	.caret {
 		position: absolute; top: 1px; bottom: 1px; width: 2px;
 		background: #e8edf2;
-		animation: blink 1.1s step-end infinite;
+		animation: blink 1.1s ease-in-out infinite;
 		pointer-events: none;
 	}
-	@keyframes blink { 50% { opacity: 0; } }
+	@keyframes blink { 50% { opacity: 0.2; } }
 
 	.result {
-		flex: 0 0 auto; min-width: 240px; max-width: 42%;
+		flex: 1; min-width: 0;
 		display: flex; flex-direction: column; justify-content: center;
 		background: #10131a; border: 1px solid #2e5540; border-radius: 8px;
-		padding: 6px 12px; overflow-x: auto;
+		padding: 8px 12px; overflow-x: auto;
 	}
 	.res-line { display: flex; gap: 10px; align-items: baseline; margin: 1px 0; white-space: nowrap; }
 	.lbl { width: 26px; font-size: 10px; color: #66707c; text-align: right; }
@@ -382,15 +637,61 @@
 	.res-line code.bin { font-size: 11px; color: #7ee0a3; letter-spacing: 0.02em; }
 
 	.error {
-		margin-top: 10px; padding: 8px 12px; font-size: 13px;
+		flex: 0 0 auto;
+		margin-top: 8px; padding: 8px 12px; font-size: 13px;
 		color: #ff9d8a; background: #2b1d1a; border: 1px solid #54322b;
 		border-radius: 6px; font-family: ui-monospace, monospace;
 	}
 
+	/* 历史记录面板：占据剩余空间，至少两行高度（2×22px 行高 + 头部），内部滚动 */
+	.history {
+		flex: 1 1 auto; min-height: 76px;
+		display: flex; flex-direction: column;
+		margin-top: 14px; background: #10131a; border: 1px solid #262c36;
+		border-radius: 10px; padding: 8px 12px;
+	}
+	.hist-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; flex: 0 0 auto; }
+	.hist-title { font-size: 12px; color: #9aa4af; }
+	.hist-hint { font-size: 10px; color: #5c6672; }
+	.hist-clear {
+		margin-left: auto; background: transparent; border: 1px solid #2c333d;
+		color: #5c6672; border-radius: 5px; font-size: 10px; padding: 1px 8px;
+		cursor: pointer;
+	}
+	.hist-clear:hover { color: #d7dce2; border-color: #46505c; }
+	.hist-list {
+		list-style: none; margin: 0; padding: 0;
+		flex: 1 1 auto; min-height: 0; /* 填充剩余空间，内部滚动 */
+		overflow-y: auto;
+		display: flex; flex-direction: column; gap: 1px;
+	}
+	.hist-empty {
+		flex: 1 1 auto; min-height: 0;
+		padding: 6px 8px; font-size: 11px; color: #4a5461;
+	}
+	.hist-item {
+		display: flex; align-items: baseline; gap: 12px; width: 100%; text-align: left;
+		background: transparent; border: none; border-radius: 5px;
+		padding: 3px 8px; cursor: pointer;
+		font-family: ui-monospace, 'SF Mono', Consolas, monospace;
+		font-size: 12px; color: #8b95a1;
+	}
+	.hist-item:hover { background: #1a2029; color: #d7dce2; }
+	.hist-item.current { background: #1e2b25; color: #7ee0a3; }
+	.hist-expr { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.hist-res { flex: 0 0 auto; color: #5c6672; }
+	.hist-res.hex-res { color: #4f7ea8; } /* hex 结果用蓝调与表达式区分 */
+	.hist-item:hover .hist-res { color: #9aa4af; }
+	.hist-item.current .hist-res, .hist-item.current .hist-res.hex-res { color: #7ee0a3; }
+	/* Ctrl+↑ 浏览时自动缓存的当前算式行（仅临时，不写入持久历史） */
+	.hist-item.draft { border-top: 1px dashed #2c333d; margin-top: 2px; padding-top: 4px; }
+	.hist-draft-tag { flex: 0 0 auto; font-size: 10px; color: #4d9e6e; font-style: normal; }
+
 	.views {
-		margin-top: 18px;
+		flex: 0 0 auto;
+		margin-top: 14px;
 		background: #10131a; border: 1px solid #262c36; border-radius: 10px;
-		padding: 18px 16px; overflow-x: auto;
+		padding: 16px 16px; overflow-x: auto;
 	}
 	.band {
 		display: flex; flex-wrap: wrap; align-items: stretch;
@@ -426,6 +727,7 @@
 	.band .op .row { color: #8b95a1; text-align: center; padding: 0 1px; }
 
 	footer {
-		margin-top: 26px; font-size: 12px; color: #5c6672; line-height: 1.7;
+		flex: 0 0 auto;
+		margin-top: 14px; font-size: 12px; color: #5c6672; line-height: 1.6;
 	}
 </style>

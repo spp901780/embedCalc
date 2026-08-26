@@ -1,0 +1,15 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "dev: vite (1420)",
+			"type": "shell",
+			"command": "pnpm dev",
+			"options": {
+				"cwd": "${workspaceFolder}/embedCalc"
+			},
+			"isBackground": true,
+			"group": "build"
+		}
+	]
+}

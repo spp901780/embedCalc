@@ -207,59 +207,37 @@ export function locateNum(tokens: Token[], offset: number): { index: number; tok
 	return null;
 }
 
-/**
- * 二进制显示模式下，空格分隔的相邻 bin token（`b110 b0110`）视为连续位流，自动拼接。
- * 只合并 base=2 的 num token；合并发生在编辑之后、展示之前。
- * 返回 null 表示没有可合并项。
- */
-export function joinAdjacentBin(src: string, tokens: Token[]): string | null {
-	for (let i = 0; i < tokens.length - 1; i++) {
-		const a = tokens[i], b = tokens[i + 1];
-		if (a.kind === 'num' && a.base === 2 && b.kind === 'num' && b.base === 2) {
-			const gap = src.slice(a.end, b.start);
-			if (/^\s+$/.test(gap)) {
-				const joined = a.text + b.text.slice(1); // 去掉第二个 token 的 'b' 前缀
-				return joinAdjacentBin(src.slice(0, a.start) + joined + src.slice(b.end), tokenize(src.slice(0, a.start) + joined + src.slice(b.end))) ?? src.slice(0, a.start) + joined + src.slice(b.end);
-			}
-		}
-	}
-	return null;
-}
-
-/** 纯字符串层面的 bin 空格合并（不依赖 tokenize，立即可用） */
-export function joinBinSpaces(src: string): string | null {
-	// 匹配 b[01_]+ 后跟空白再 b[01_]+
-	const m = src.match(/(b[01_]+)(\s+)(b[01_]+)/);
-	if (!m || m.index === undefined) return null;
-	const joined = m[1] + m[3].slice(1); // 去掉第二个 b
-	return src.slice(0, m.index) + joined + src.slice(m.index + m[0].length);
-}
-
-/** 检查 offset 处是否处于两个 bin token 之间（用空格分隔），是则返回合并后的字符串 */
-export function shouldJoinBins(src: string, offset: number): string | null {
-	// 向左找 b[01_]* 的结尾，向右找 b[01_]* 的开头
-	let l = offset;
-	while (l > 0 && (src[l - 1] === '0' || src[l - 1] === '1' || src[l - 1] === '_')) l--;
-	if (l > 0 && src[l - 1] === 'b') l--;
-	let r = offset;
-	while (r < src.length && src[r] === ' ') r++;
-	if (r >= src.length || src[r] !== 'b') return null;
-	let r2 = r + 1;
-	while (r2 < src.length && (src[r2] === '0' || src[r2] === '1' || src[r2] === '_')) r2++;
-	if (r2 === r + 1) return null; // b 后面没数字
-	// 检查左边是否真的是 bin token（前面是边界或运算符）
-	if (l > 0 && !'+-*/%&|^~() '.includes(src[l - 1])) return null;
-	// 检查右边是否真的是 bin token（后面是边界或运算符）
-	if (r2 < src.length && !'+-*/%&|^~() '.includes(src[r2])) return null;
-	return src.slice(0, l) + src.slice(l, offset) + src.slice(r + 1, r2) + src.slice(r2);
-}
-
 /** 进制切换时的位置换算：hex 第 n 位 ↔ bin 第 4n 位；dec 与 bit 不对齐，退化为从右序号 */
 export function convertDigit(digit: number, from: Base, to: Base): number {
 	if (from === to) return digit;
 	if (from === 16 && to === 2) return digit * 4;
 	if (from === 2 && to === 16) return Math.floor(digit / 4);
 	return digit; // dec 参与时按从右序号原样传递（由调用方 clamp）
+}
+
+/**
+ * bin token 的位号标注点：从右（LSB）起每 8 位一组，
+ * 返回每组最高位的位号（0 起，LSB=0）及该位数字的字符偏移；
+ * 顶部不足 8 位的组也标注其最高位。[{ count, pos }]
+ */
+export function bitMarkPositions(tokenText: string): { count: number; pos: number }[] {
+	let i = 0;
+	// 跳过前缀 b/0b/B/0B
+	if (tokenText[0] === '0' && (tokenText[1] === 'b' || tokenText[1] === 'B')) i = 2;
+	else if (tokenText[0] === 'b' || tokenText[0] === 'B') i = 1;
+	// 所有位数字的字符偏移（左 → 右）
+	const digitPos: number[] = [];
+	for (; i < tokenText.length; i++) {
+		if (tokenText[i] !== '_') digitPos.push(i);
+	}
+	const n = digitPos.length;
+	const marks: { count: number; pos: number }[] = [];
+	// 左起第 k 位的位号 = n-1-k；组的最高位满足 位号≡7 (mod 8)，整体 MSB 也标注
+	for (let k = 0; k < n; k++) {
+		const bitNo = n - 1 - k;
+		if (bitNo == 0 || bitNo % 8 === 7 || k === 0) marks.push({ count: bitNo, pos: digitPos[k] });
+	}
+	return marks;
 }
 
 // ---------- 布局模型 ----------
