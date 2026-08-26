@@ -40,6 +40,15 @@ jobs:
             --repo "${{ github.repository }}" \
             --pattern '*.rpm' --dir rpm-repo
 
+      - name: 导入 GPG 私钥
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        run: |
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+          # 信任导入的密钥（ultimate trust）
+          KEY_ID=$(gpg --list-keys --keyid-format long | grep -A1 '^pub' | tail -1 | awk '{print $1}')
+          echo "${KEY_ID}:6:" | gpg --import-ownertrust
+
       - name: 更新仓库元数据
         run: |
           cd repo
@@ -50,6 +59,14 @@ jobs:
           cd ..
           # 同步仓库配置文件
           cp main/packaging/rpm/embedcalc.repo .
+
+      - name: 签名仓库元数据并导出公钥
+        run: |
+          cd repo/rpm-repo
+          # 签名 repomd.xml
+          gpg --batch --yes --detach-sign --armor repodata/repomd.xml
+          # 导出公钥供用户导入
+          gpg --export --armor > repodata/repomd.xml.key
 
       - name: 提交并推送
         run: |
