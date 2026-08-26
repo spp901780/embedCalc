@@ -37,6 +37,7 @@ export function tokenize(src: string): Token[] {
 		else if ((c === 'd' || c === 'D' || c === 'u' || c === 'U') && i + 1 < src.length && isDigit(src[i + 1])) { base = 10; i++; }
 		else if (c === '0' && i + 1 < src.length && (src[i + 1] === 'x' || src[i + 1] === 'X')) { base = 16; i += 2; }
 		else if (c === '0' && i + 1 < src.length && (src[i + 1] === 'b' || src[i + 1] === 'B')) { base = 2; i += 2; }
+		else if (c === '0' && i + 1 < src.length && (src[i + 1] === 'd' || src[i + 1] === 'D')) { base = 10; i += 2; }
 		else if (isDigit(c)) { base = 10; }
 
 		if (base !== null) {
