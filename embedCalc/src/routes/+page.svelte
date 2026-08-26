@@ -70,8 +70,9 @@
 	function histOlder() {
 		if (history.length === 0) return;
 		if (!browsing) { draft = expr; browsing = true; histPos = history.length - 1; }
-		else if (histPos < 0) return; // 已在草稿行
-		else histPos = Math.max(0, histPos - 1);
+		else if (histPos === -2) histPos = history.length - 1; // 草稿行 → 最新一条
+		else if (histPos <= 0) return; // 已在最老一条，不再上翻
+		else histPos = histPos - 1;
 		expr = history[histPos].expr;
 		cursor = expr.length;
 	}
@@ -90,6 +91,7 @@
 	}
 	function clickHistoryItem(i: number) {
 		if (!browsing) { draft = expr; browsing = true; }
+		else { draft = expr; } // 浏览态中点击其他条目时，更新草稿为当前表达式
 		histPos = i;
 		expr = history[i].expr;
 		cursor = expr.length;
@@ -365,12 +367,12 @@
 </script>
 
 <svelte:head>
-	<title>嵌入式混合进制计算器</title>
+	<title>EmbedCalc - 混合进制计算器</title>
 </svelte:head>
 
 <main>
 	<header>
-		<h1>嵌入式混合进制计算器</h1>
+		<h1>EmbedCalc</h1>
 		<!-- 示例移入下拉菜单，为历史记录面板腾出空间 -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div class="preset-wrap" role="presentation" onmouseleave={() => (presetMenuOpen = false)}>
@@ -418,7 +420,7 @@
 						<button
 							class="hist-item draft"
 							class:current={histPos === -2}
-							onclick={() => { histPos = -2; expr = draft; cursor = expr.length; inputEl?.focus(); }}
+							onclick={() => { if (!browsing) { draft = expr; browsing = true; } histPos = -2; expr = draft; cursor = expr.length; inputEl?.focus(); }}
 						>
 							<span class="hist-expr">{draft}</span>
 							<span class="hist-draft-tag">当前算式</span>
@@ -519,9 +521,9 @@
 	{/if}
 
 	<footer>
-		光标移到数字内部，按 ↑/↓ 切换该数字进制（hex→dec→bin，不循环）·
-		Ctrl+←/→ 快速跳转词元 · Ctrl+↑/↓ 翻阅历史记录（当前算式自动缓存到末行）·
-		Enter 保存算式到历史 · Esc 退出历史浏览 · bin 空格自动连接 · 每 8 位下方标注位号 · 纯数学求值，无位宽截断
+		光标移到数字内部，按 ↑/↓ 切换该数字进制·
+		Ctrl+←/→ 快速跳转词元 · Ctrl+↑/↓ 翻阅历史记录·
+		Enter 保存算式到历史 · Esc 退出历史浏览
 	</footer>
 </main>
 
