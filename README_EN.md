@@ -34,6 +34,18 @@
 
 ---
 
+## Installation
+
+Download the installer for your platform from the [Releases page](https://github.com/spp901780/embedCalc/releases):
+
+| Platform | Format |
+|----------|--------|
+| Linux (x64) | `.deb`, `.rpm` |
+| macOS (Apple Silicon / Intel) | `.dmg` |
+| Windows (x64) | `.msi`, `.exe` |
+
+---
+
 ## Installation & Development
 
 A mixed-radix calculator designed for embedded developers. Freely mix hexadecimal, decimal, and binary numbers
