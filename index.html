@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EmbedCalc RPM 仓库</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+               max-width: 800px; margin: 0 auto; padding: 20px; line-height: 1.6; }
+        .header { text-align: center; margin-bottom: 40px; }
+        .install-cmd { background: #f4f4f4; padding: 15px; border-radius: 8px; 
+                     font-family: monospace; overflow-x: auto; white-space: pre-wrap; }
+        .steps { background: #f9f9f9; padding: 20px; border-radius: 8px; margin: 20px 0; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📦 EmbedCalc RPM 仓库</h1>
+        <p>混合进制计算器 | Mixed Radix Calculator</p>
+    </div>
+    
+    <div class="steps">
+        <h2>🚀 快速安装</h2>
+        <div class="install-cmd"><code># 添加仓库
+sudo dnf config-manager --add-repo https://spp901780.github.io/embedCalc/embedcalc.repo
+
+# 安装 EmbedCalc
+sudo dnf install embedcalc</code></div>
+    </div>
+    
+    <div class="steps">
+        <h2>📋 支持的发行版</h2>
+        <ul>
+            <li>Fedora 38+</li>
+            <li>RHEL 9+</li>
+            <li>CentOS Stream 9+</li>
+            <li>其他兼容 RPM 的发行版</li>
+        </ul>
+    </div>
+    
+    <div class="steps">
+        <h2>🔗 相关链接</h2>
+        <ul>
+            <li><a href="https://github.com/spp901780/embedCalc">GitHub 仓库</a></li>
+            <li><a href="https://github.com/spp901780/embedCalc/releases">发布页面</a></li>
+        </ul>
+    </div>
+</body>
+</html>
