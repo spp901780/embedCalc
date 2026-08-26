@@ -1,0 +1,7 @@
+[embedcalc]
+name=EmbedCalc - 混合进制计算器
+baseurl=https://spp901780.github.io/embedCalc/rpm-repo/
+enabled=1
+gpgcheck=1
+gpgkey=https://spp901780.github.io/embedCalc/rpm-repo/repodata/repomd.xml.key
+module_hotfixes=1

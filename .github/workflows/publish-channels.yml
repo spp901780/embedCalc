@@ -1,0 +1,286 @@
+# ============================================================
+#  多渠道发布工作流
+#  触发条件：在 GitHub 手动将 draft release 点击 "Publish" 后自动运行
+#
+#  所需 Secrets（在仓库 Settings → Secrets → Actions 中配置）：
+#  ┌──────────────────────┬───────────────────────────────────────────┐
+#  │ Secret 名称           │ 说明                                      │
+#  ├──────────────────────┼───────────────────────────────────────────┤
+#  │ WINGET_TOKEN          │ GitHub PAT（public_repo 权限），          │
+#  │                       │ 用于向 microsoft/winget-pkgs 提交 PR     │
+#  │ HOMEBREW_TAP_TOKEN    │ GitHub PAT（repo 权限），                │
+#  │                       │ 用于推送 Cask 到 spp901780/homebrew-tap  │
+#  └──────────────────────┴───────────────────────────────────────────┘
+#  GITHUB_TOKEN 由 Actions 自动提供，无需手动配置
+# ============================================================
+
+name: Publish Channels
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+# ────────────────────────────────────────────────────────────
+#  Job 1: WinGet（Windows 包管理器）
+#  向 microsoft/winget-pkgs 自动提交 PR
+#  用户安装：winget install Spp90.EmbedCalc
+# ────────────────────────────────────────────────────────────
+jobs:
+  winget:
+    name: 🪟 WinGet
+    runs-on: windows-latest
+    if: "!github.event.release.prerelease"
+    steps:
+      - name: 提交到 WinGet
+        uses: vedantmgoyal9/winget-releaser@v2
+        with:
+          identifier: Spp90.EmbedCalc
+          version: ${{ github.event.release.tag_name }}
+          installers-regex: 'EmbedCalc.*\.(msi|exe)$'
+          token: ${{ secrets.WINGET_TOKEN }}
+          release-tag: ${{ github.event.release.tag_name }}
+
+  # ──────────────────────────────────────────────────────────
+  #  Job 2: Homebrew（macOS 包管理器）
+  #  自动更新 spp901780/homebrew-tap 中的 Cask
+  #  用户安装：
+  #    brew tap spp901780/tap
+  #    brew install --cask embedcalc
+  # ──────────────────────────────────────────────────────────
+  homebrew:
+    name: 🍺 Homebrew
+    runs-on: ubuntu-latest
+    if: "!github.event.release.prerelease"
+    steps:
+      - name: Checkout tap 仓库
+        uses: actions/checkout@v4
+        with:
+          repository: spp901780/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+
+      - name: 下载 macOS 构建产物
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p dist
+          gh release download "${{ github.event.release.tag_name }}" \
+            --repo "${{ github.repository }}" \
+            --pattern '*.dmg' --dir dist
+
+      - name: 计算 SHA256
+        id: sha
+        run: |
+          ARM64_SHA=$(sha256sum dist/*aarch64*.dmg | awk '{print $1}')
+          X64_SHA=$(sha256sum dist/*x64*.dmg | awk '{print $1}')
+          echo "arm64=$ARM64_SHA" >> "$GITHUB_OUTPUT"
+          echo "x64=$X64_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: 生成 Cask 公式
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+          ARM64_SHA: ${{ steps.sha.outputs.arm64 }}
+          X64_SHA: ${{ steps.sha.outputs.x64 }}
+        run: |
+          VERSION="${TAG#v}"
+          mkdir -p tap/Casks
+          cat > tap/Casks/embedcalc.rb << 'RUBY'
+          cask "embedcalc" do
+            arch arm: "aarch64", intel: "x64"
+
+            version "${VERSION}"
+
+            on_arm do
+              sha256 "${ARM64_SHA}"
+              url "https://github.com/spp901780/embedCalc/releases/download/v#{version}/EmbedCalc_#{version}_aarch64.dmg"
+            end
+            on_intel do
+              sha256 "${X64_SHA}"
+              url "https://github.com/spp901780/embedCalc/releases/download/v#{version}/EmbedCalc_#{version}_x64.dmg"
+            end
+
+            name "EmbedCalc"
+            desc "混合进制计算器 | Mixed Radix Calculator"
+            homepage "https://github.com/spp901780/embedCalc"
+
+            depends_on macos: ">= :big_sur"
+
+            app "EmbedCalc.app"
+
+            zap trash: [
+              "~/Library/Application Support/com.spp90.embedcalc",
+              "~/Library/Caches/com.spp90.embedcalc",
+              "~/Library/Preferences/com.spp90.embedcalc.plist",
+            ]
+          end
+          RUBY
+          # 替换变量（heredoc 内变量未展开）
+          sed -i "s/\${VERSION}/${VERSION}/g"       tap/Casks/embedcalc.rb
+          sed -i "s/\${ARM64_SHA}/${ARM64_SHA}/g"   tap/Casks/embedcalc.rb
+          sed -i "s/\${X64_SHA}/${X64_SHA}/g"       tap/Casks/embedcalc.rb
+
+      - name: 推送到 tap 仓库
+        run: |
+          cd tap
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/embedcalc.rb
+          if git diff --cached --quiet; then
+            echo "Cask 无变化，跳过提交"
+          else
+            VERSION="${TAG#v}"
+            git commit -m "embedcalc ${VERSION}"
+            git push
+          fi
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+
+  # ──────────────────────────────────────────────────────────
+  #  Job 3: RPM 仓库（Fedora / RHEL / CentOS）
+  #  将 RPM 包添加到 GitHub Pages 托管的仓库
+  #  用户安装：
+  #    sudo dnf install -y 'dnf-command(config-manager)'
+  #    sudo dnf config-manager --add-repo https://spp901780.github.io/embedCalc/embedcalc.repo
+  #    sudo dnf install embedcalc
+  # ──────────────────────────────────────────────────────────
+  rpm-repo:
+    name: 📦 RPM 仓库
+    runs-on: ubuntu-latest
+    if: "!github.event.release.prerelease"
+    steps:
+      - name: Checkout 主分支（获取仓库配置文件）
+        uses: actions/checkout@v4
+        with:
+          path: main
+
+      - name: Checkout rpm-repo 分支
+        uses: actions/checkout@v4
+        with:
+          ref: rpm-repo
+          path: repo
+          fetch-depth: 0
+
+      - name: 初始化 rpm-repo 分支（如果不存在）
+        run: |
+          cd repo
+          if [ ! -f "index.html" ]; then
+            echo "初始化 RPM 仓库分支..."
+            mkdir -p repodata rpm-repo
+            # 创建仓库首页
+            cat > index.html << 'HTML'
+          <!DOCTYPE html>
+          <html lang="zh-CN">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>EmbedCalc RPM 仓库</title>
+            <style>
+              body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+                     max-width: 800px; margin: 0 auto; padding: 20px; line-height: 1.6; }
+              .header { text-align: center; margin-bottom: 40px; }
+              .install-cmd { background: #f4f4f4; padding: 15px; border-radius: 8px; 
+                           font-family: monospace; overflow-x: auto; }
+              .steps { background: #f9f9f9; padding: 20px; border-radius: 8px; margin: 20px 0; }
+            </style>
+          </head>
+          <body>
+            <div class="header">
+              <h1>📦 EmbedCalc RPM 仓库</h1>
+              <p>混合进制计算器 | Mixed Radix Calculator</p>
+            </div>
+            
+            <div class="steps">
+              <h2>🚀 快速安装</h2>
+              <div class="install-cmd">
+                <code>
+                  # 添加仓库<br>
+                  sudo dnf install -y 'dnf-command(config-manager)'<br>
+                  sudo dnf config-manager --add-repo https://spp901780.github.io/embedCalc/embedcalc.repo<br><br>
+                  # 安装 EmbedCalc<br>
+                  sudo dnf install embedcalc
+                </code>
+              </div>
+            </div>
+            
+            <div class="steps">
+              <h2>📋 支持的发行版</h2>
+              <ul>
+                <li>Fedora 38+</li>
+                <li>RHEL 9+</li>
+                <li>CentOS Stream 9+</li>
+                <li>其他兼容 RPM 的发行版</li>
+              </ul>
+            </div>
+            
+            <div class="steps">
+              <h2>🔗 相关链接</h2>
+              <ul>
+                <li><a href="https://github.com/spp901780/embedCalc">GitHub 仓库</a></li>
+                <li><a href="https://github.com/spp901780/embedCalc/releases">发布页面</a></li>
+              </ul>
+            </div>
+          </body>
+          </html>
+          HTML
+          fi
+
+      - name: 下载 RPM 包
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd repo
+          mkdir -p rpm-repo
+          # 下载所有 RPM 包
+          gh release download "${{ github.event.release.tag_name }}" \
+            --repo "${{ github.repository }}" \
+            --pattern '*.rpm' --dir rpm-repo
+
+      - name: 更新仓库元数据
+        run: |
+          cd repo
+          sudo apt-get update
+          sudo apt-get install -y createrepo-c
+          # 更新 createrepo 元数据
+          cd rpm-repo
+          createrepo_c --update .
+          cd ..
+          # 复制仓库配置文件到根目录
+          cp main/packaging/rpm/embedcalc.repo .
+
+      - name: 提交并推送
+        run: |
+          cd repo
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "RPM 仓库无变化，跳过提交"
+          else
+            git commit -m "Update RPM packages for ${{ github.event.release.tag_name }}"
+            git push
+          fi
+
+  # ──────────────────────────────────────────────────────────
+  #  Job 4: 汇总通知
+  # ──────────────────────────────────────────────────────────
+  summary:
+    name: 📋 发布摘要
+    runs-on: ubuntu-latest
+    needs: [winget, homebrew, rpm-repo]
+    if: always()
+    steps:
+      - name: 生成摘要
+        run: |
+          echo "## 🎉 EmbedCalc ${{ github.event.release.tag_name }} 多渠道发布完成" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 渠道 | 状态 | 安装方式 |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|------|------|----------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 🪟 WinGet | ${{ needs.winget.result == 'success' && '✅' || '❌' }} | \`winget install Spp90.EmbedCalc\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 🍺 Homebrew | ${{ needs.homebrew.result == 'success' && '✅' || '❌' }} | \`brew tap spp901780/tap && brew install --cask embedcalc\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 📦 RPM 仓库 | ${{ needs.rpm-repo.result == 'success' && '✅' || '❌' }} | \`sudo dnf config-manager --add-repo https://spp901780.github.io/embedCalc/embedcalc.repo && sudo dnf install embedcalc\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 📀 DEB | ✅ (由 release.yml 自动构建) | 见 Release Assets |" >> "$GITHUB_STEP_SUMMARY"
