@@ -304,10 +304,11 @@
 	}
 
 	// Ctrl+←/→：跳到上一个/下一个 token 起始位置，并短暂闪烁目标词元
+	// 数字词元落在 digitStart（前缀右侧），保证光标进入数字位区域、可直接 ↑/↓ 切换进制
 	function wordJump(dir: -1 | 1) {
 		if (!tokens || tokens.length === 0) { cursor = dir < 0 ? 0 : expr.length; return; }
-		// 只用 token 的 start 作为跳转目标
-		const starts = tokens.map(t => t.start);
+		// 跳转目标：num 取 digitStart（跳过 x/b 前缀），其余取 start
+		const starts = tokens.map(t => (t.kind === 'num' ? t.digitStart! : t.start));
 		if (dir < 0) {
 			// 向左：找 cursor 之前的最近 token 起始（允许等于 cursor 时跳到再前一个）
 			for (let i = starts.length - 1; i >= 0; i--) {
@@ -323,23 +324,36 @@
 		}
 	}
 
+	// 光标移动统一入口：按住 Shift → 以当前光标为锚点扩展选区，否则清除选区
+	function moveCursor(to: () => number, extend: boolean) {
+		if (extend && selAnchor === null) selAnchor = cursor;
+		cursor = to();
+		if (!extend) clearSel();
+	}
+
 	function onKeydown(e: KeyboardEvent) {
 		if (e.metaKey || e.altKey) return; // 放行系统快捷键
 		if (e.ctrlKey) {
 			if (e.key === 'a' || e.key === 'A') { selAnchor = 0; cursor = expr.length; e.preventDefault(); return; }
 			if (e.key === 'c' || e.key === 'C') { if (selection) { navigator.clipboard?.writeText(expr.slice(selection.start, selection.end)); } e.preventDefault(); return; }
 			if (e.key === 'x' || e.key === 'X') { if (selection) { navigator.clipboard?.writeText(expr.slice(selection.start, selection.end)); insertText(''); } e.preventDefault(); return; }
-			if (e.key === 'ArrowLeft') { wordJump(-1); clearSel(); e.preventDefault(); }
-			else if (e.key === 'ArrowRight') { wordJump(1); clearSel(); e.preventDefault(); }
+			if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+				// Ctrl+Shift+←/→：按词元扩展选区
+				if (e.shiftKey && selAnchor === null) selAnchor = cursor;
+				wordJump(e.key === 'ArrowLeft' ? -1 : 1);
+				if (!e.shiftKey) clearSel();
+				e.preventDefault();
+			}
 			else if (e.key === 'ArrowUp') { histOlder(); e.preventDefault(); }
 			else if (e.key === 'ArrowDown') { histNewer(); e.preventDefault(); }
 			return; // 其余 Ctrl 组合放行
 		}
 		const k = e.key;
-		if (k === 'ArrowLeft') { cursor = Math.max(0, cursor - 1); clearSel(); }
-		else if (k === 'ArrowRight') { cursor = Math.min(expr.length, cursor + 1); clearSel(); }
-		else if (k === 'Home') { cursor = 0; clearSel(); }
-		else if (k === 'End') { cursor = expr.length; clearSel(); }
+		const sh = e.shiftKey; // Shift+方向键/Home/End：扩展选区
+		if (k === 'ArrowLeft') moveCursor(() => Math.max(0, cursor - 1), sh);
+		else if (k === 'ArrowRight') moveCursor(() => Math.min(expr.length, cursor + 1), sh);
+		else if (k === 'Home') moveCursor(() => 0, sh);
+		else if (k === 'End') moveCursor(() => expr.length, sh);
 		else if (k === 'ArrowUp' || k === 'ArrowDown') {
 			// 光标在数字内 → 切换该数字进制；不在数字上 → 不响应（历史浏览走 Ctrl+↑/↓）
 			const info = tokens ? locateNum(tokens, cursor) : null;
@@ -363,23 +377,45 @@
 		insertText(text);
 	}
 
-	// 鼠标点击 → 字符偏移（caretRangeFromPoint / caretPositionFromPoint）
-	function onMousedown(e: MouseEvent) {
-		e.preventDefault();
-		inputEl?.focus();
-		clearSel();
+	// 鼠标位置 → 字符偏移（caretRangeFromPoint / caretPositionFromPoint）
+	function offsetFromPoint(x: number, y: number): number {
 		const doc = document as Document & {
 			caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
 		};
 		let node: Node | null = null, off = 0;
 		if (doc.caretRangeFromPoint) {
-			const r = doc.caretRangeFromPoint(e.clientX, e.clientY);
+			const r = doc.caretRangeFromPoint(x, y);
 			if (r) { node = r.startContainer; off = r.startOffset; }
 		} else if (doc.caretPositionFromPoint) {
-			const p = doc.caretPositionFromPoint(e.clientX, e.clientY);
+			const p = doc.caretPositionFromPoint(x, y);
 			if (p) { node = p.offsetNode; off = p.offset; }
 		}
-		cursor = node ? globalOffset(node, off) : expr.length;
+		return node ? globalOffset(node, off) : expr.length;
+	}
+
+	// mousedown：定位光标；拖动 → 以按下点为锚点扩展选区；Shift+点击 → 扩展选区到点击处
+	function onMousedown(e: MouseEvent) {
+		e.preventDefault();
+		inputEl?.focus();
+		if (e.shiftKey) {
+			if (selAnchor === null) selAnchor = cursor;
+			cursor = offsetFromPoint(e.clientX, e.clientY);
+			return;
+		}
+		clearSel();
+		const down = offsetFromPoint(e.clientX, e.clientY);
+		cursor = down;
+		const onMove = (ev: MouseEvent) => {
+			selAnchor = down;
+			cursor = offsetFromPoint(ev.clientX, ev.clientY);
+		};
+		const onUp = () => {
+			window.removeEventListener('mousemove', onMove);
+			window.removeEventListener('mouseup', onUp);
+			if (selAnchor === cursor) clearSel(); // 原地松开（未拖动）→ 无选区
+		};
+		window.addEventListener('mousemove', onMove);
+		window.addEventListener('mouseup', onUp);
 	}
 
 	function globalOffset(node: Node, off: number): number {
@@ -568,8 +604,8 @@
 
 	<footer>
 		光标移到数字内部，按 ↑/↓ 切换该数字进制·
-		Ctrl+←/→ 快速跳转词元 · Ctrl+↑/↓ 翻阅历史记录·
-		Enter 保存算式到历史 · Esc 退出历史浏览
+		Shift+←/→ 或鼠标拖选选中文本 · Ctrl+←/→ 快速跳转词元 ·
+		Ctrl+↑/↓ 翻阅历史记录 · Enter 保存算式到历史 · Esc 退出历史浏览
 	</footer>
 </main>
 
