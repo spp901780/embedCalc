@@ -57,8 +57,8 @@ jobs:
           cd rpm-repo
           createrepo_c --update .
           cd ..
-          # 同步仓库配置文件
-          cp main/packaging/rpm/embedcalc.repo .
+          # 同步仓库配置文件（main/ 是 repo/ 的兄弟目录）
+          cp ../main/packaging/rpm/embedcalc.repo .
 
       - name: 签名仓库元数据并导出公钥
         run: |
