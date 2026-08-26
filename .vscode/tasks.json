@@ -6,7 +6,7 @@
 			"type": "shell",
 			"command": "pnpm dev",
 			"options": {
-				"cwd": "${workspaceFolder}/embedCalc"
+				"cwd": "${workspaceFolder}"
 			},
 			"isBackground": true,
 			"group": "build"
