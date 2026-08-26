@@ -1,5 +1,7 @@
 # EmbedCalc — 嵌入式混合进制计算器
 
+**[English](README_EN.md)** | 简体中文
+
 ## 快速上手
 
 **输入算式，直接计算。**
@@ -17,10 +19,11 @@
 
 | 操作         | 方法                                                                      |
 | ------------ | ------------------------------------------------------------------------- |
-| 计算         | 输入算式后按**Enter**                                               |
+| 计算         | 输入算式后立即响应                                              |
 | 切换数字进制 | 把光标移到数字内部，按**↑**（变大进制）或 **↓**（变小进制） |
 | 查看历史     | 按**Ctrl+↑** 翻出历史，**Ctrl+↓** 翻回，**Esc** 退出  |
 | 跳转词元     | **Ctrl+← / Ctrl+→** 快速跳到上/下一个数字或运算符                 |
+| 保存记录     | 按**Enter**将算式保存到历史记录 |
 
 ### 注意事项
 
@@ -54,26 +57,28 @@
 | 桌面 | Tauri v2（Rust + WebView）            |
 | 构建 | pnpm、SvelteKit adapter-static        |
 
-前端总大小 ~18 KB gzip，无外部 UI 依赖。
 
 ## 项目结构
 
 ```
-├── src/                    # Svelte 前端
-│   ├── lib/calc.ts         # 核心引擎：词法分析、Pratt 解析器、进制转换、布局构建
+├── src/                      # Svelte 前端
+│   ├── app.html              # HTML 入口
+│   ├── lib/calc.ts           # 核心引擎：词法分析、Pratt 解析器、进制转换、布局构建
 │   └── routes/
-│       ├── +layout.ts      # SvelteKit 静态 adapter 配置
-│       └── +page.svelte    # 主页面：自绘输入框、历史记录、多进制视图、键盘交互
-├── src-tauri/              # Tauri 桌面端
-│   ├── Cargo.toml          # Rust 依赖
-│   ├── tauri.conf.json     # 窗口配置（最小 720×560）、打包目标（deb / rpm）
-│   ├── capabilities/       # Tauri v2 权限声明
+│       ├── +layout.ts        # SvelteKit 静态 adapter 配置
+│       └── +page.svelte      # 主页面：自绘输入框、历史记录、多进制视图、键盘交互
+├── src-tauri/                # Tauri 桌面端
+│   ├── Cargo.toml            # Rust 依赖
+│   ├── tauri.conf.json       # 窗口配置、版本号、打包目标（deb / rpm）
+│   ├── capabilities/         # Tauri v2 权限声明
+│   ├── icons/                # 应用图标（多平台）
 │   └── src/
-│       ├── main.rs         # Tauri 入口
-│       └── lib.rs          # Tauri 插件注册
-├── static/                 # 静态资源
-├── docs/                   # 原型交接文档（Kimi Agent 生成的初版参考）
-└── .vscode/                # VS Code 工作区配置
+│       ├── main.rs           # Tauri 入口
+│       └── lib.rs            # Tauri 插件注册
+├── static/                   # 静态资源（favicon 等）
+├── image/                    # 图片资源（README 截图、应用图标源文件）
+├── .github/workflows/        # CI/CD（release.yml 发布流水线）
+└── .vscode/                  # VS Code 工作区配置
 ```
 
 ## 快速开始
