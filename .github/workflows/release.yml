@@ -1,0 +1,75 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'          # 推送 v0.1.0 这类 tag 触发
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    permissions:
+      contents: write   # 允许创建 Release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest                      # Apple Silicon
+            args: --target aarch64-apple-darwin
+          - platform: macos-latest                      # Intel Mac
+            args: --target x86_64-apple-darwin
+          - platform: ubuntu-22.04                      # Linux x64
+            args: --bundles deb,rpm
+          - platform: ubuntu-22.04-arm                  # Linux ARM64
+            args: --bundles deb,rpm
+          - platform: windows-latest
+            args: ''
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: pnpm
+
+      - name: 安装 Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Rust 构建缓存
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: 安装 Linux 系统依赖
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: 安装前端依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 构建并发布
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: v__VERSION__            # __VERSION__ 自动替换为 tauri.conf.json 里的版本号
+          releaseName: 'EmbCalc v__VERSION__'
+          releaseDraft: true               # 草稿，人工确认后再发布
+          prerelease: false
+          args: ${{ matrix.args }}
