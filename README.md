@@ -48,7 +48,7 @@
 
 | 平台 | 格式 |
 |------|------|
-| Linux (x64) | `.deb`、`.rpm` |
+| Linux (x64 / ARM) | `.deb`、`.rpm` |
 | macOS (Apple Silicon / Intel) | `.dmg` |
 | Windows (x64) | `.msi`、`.exe` |
 
