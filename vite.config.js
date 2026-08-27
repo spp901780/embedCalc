@@ -3,10 +3,14 @@ import { sveltekit } from "@sveltejs/kit/vite";
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
+// For GitHub Pages deployment, BASE_PATH should be set to "/<repo>/"
+// (e.g. "/embedCalc/"). In local/Tauri builds this stays "/".
+const basePath = process.env.BASE_PATH || "/";
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
   plugins: [sveltekit()],
+  base: basePath,
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
