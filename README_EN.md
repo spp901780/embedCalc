@@ -2,6 +2,8 @@
 
 **[简体中文](README.md)** | English
 
+Live Demo (GitHub Pages): https://spp901780.github.io/embedCalc/
+
 ## Quick Start
 
 **Type an expression, get the result instantly.**

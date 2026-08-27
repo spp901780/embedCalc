@@ -2,6 +2,8 @@
 
 **[English](README_EN.md)** | 简体中文
 
+在线体验（GitHub Pages）：https://spp901780.github.io/embedCalc/
+
 ## 快速上手
 
 **输入算式，直接计算。**
