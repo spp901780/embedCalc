@@ -698,7 +698,8 @@
 			{/if}
 		</div>
 		<!-- 可拖动分隔条：调整输入框/结果框宽度比例，支持键盘 ←/→ 微调 -->
-		<!-- svelte-ignore a11y_no_noninteractive_tabindex a11y_no_noninteractive_element_interactions -->
+		<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+		<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 		<div
 			class="splitter"
 			role="separator"
