@@ -195,13 +195,15 @@ export function numText(value: bigint, base: Base): string {
 		const bits = v < 0n ? (-v).toString(2).length : v.toString(2).length;
 		if (bits > MAX_DISPLAY_BITS) throw new Error(`结果 ${bits} 位，超出显示范围（最大 ${MAX_DISPLAY_BITS} 位）`);
 		if (v >= 0n) return binLines(v, true);
-		const padBits = Math.max(8, Math.ceil((-v).toString(2).length / 8) * 8);
+		// 负数补码：找最小 n 使 2^(n-1) ≥ |v|（n 位补码范围 [-2^(n-1), 2^(n-1)-1]），再对齐到 8 的倍数
+		// 如 -250 需 n=9（2^8=256≥250）→ 16 位；-128 需 n=8（2^7=128≥128）→ 8 位
+		const abs = -v;
+		let n = 1;
+		while ((1n << BigInt(n - 1)) < abs) n++;
+		const padBits = Math.max(8, Math.ceil(n / 8) * 8);
 		return binLines((1n << BigInt(padBits)) + v, true);
-}
+	}
 
-// ---------- 人性化大小 ----------
-
-/** 结果 ≥ 1024 时的人性化大小（1024 进制 K/M/G/…，两位小数）；负数或 < 1024 返回 null */
 export function humanSize(v: bigint): string | null {
 	if (v < 1024n) return null;
 	const units = ['K', 'M', 'G', 'T', 'P', 'E'];
