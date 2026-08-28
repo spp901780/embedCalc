@@ -9,6 +9,7 @@ name: Deploy Frontend to GitHub Pages
 on:
   release:
     types: [published]
+  workflow_dispatch:   # 允许在 Actions 页面手动触发
 
 permissions:
   contents: read
@@ -44,6 +45,9 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: 构建前端
+        env:
+          # 项目站点需以 /<repo>/ 为 base 路径，如 /embedCalc
+          BASE_PATH: /${{ github.event.repository.name }}
         run: pnpm build
 
       - name: 上传 Pages 产物

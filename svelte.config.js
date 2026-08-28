@@ -12,6 +12,11 @@ const config = {
     adapter: adapter({
       fallback: "index.html",
     }),
+    // GitHub Pages 项目站点部署在子路径下（如 /embedCalc），通过环境变量注入；
+    // 本地 dev / Tauri 构建不传该变量，保持根路径不变
+    paths: {
+      base: process.env.BASE_PATH ?? "",
+    },
   },
 };
 
