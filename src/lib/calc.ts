@@ -134,8 +134,12 @@ export function parse(tokens: Token[]): bigint {
 			case '*': return a * b;
 			case '/': if (b === 0n) throw new Error('除以零'); return a / b;
 			case '%': if (b === 0n) throw new Error('对零取模'); return a % b;
-			case '<<': return a << (b & 63n);
-			case '>>': return a >> (b & 63n);
+			case '<<': {
+				if (b < 0n) throw new Error('左移位数不能为负');
+				if (b > 2048n) throw new Error(`左移位数 ${b} 过大（最大 2048）`);
+				return a << b;
+			}
+			case '>>': return a >> b;
 			case '&': return a & b;
 			case '|': return a | b;
 			case '^': return a ^ b;
@@ -185,11 +189,14 @@ export function numText(value: bigint, base: Base): string {
 	return value.toString(10);
 }
 
-/** 结果区 bin 显示：负数显示二进制补码（8 位对齐），正数直接展开 */
-export function resultBinLines(v: bigint): string[] {
-	if (v >= 0n) return binLines(v, true);
-	const bits = Math.max(8, Math.ceil((-v).toString(2).length / 8) * 8);
-	return binLines((1n << BigInt(bits)) + v, true);
+/** 结果区 bin 显示：负数显示二进制补码（8 位对齐），正数直接展开。超过 MAX_DISPLAY_BITS 位时抛出错误 */
+	const MAX_DISPLAY_BITS = 2048;
+	export function resultBinLines(v: bigint): string[] {
+		const bits = v < 0n ? (-v).toString(2).length : v.toString(2).length;
+		if (bits > MAX_DISPLAY_BITS) throw new Error(`结果 ${bits} 位，超出显示范围（最大 ${MAX_DISPLAY_BITS} 位）`);
+		if (v >= 0n) return binLines(v, true);
+		const padBits = Math.max(8, Math.ceil((-v).toString(2).length / 8) * 8);
+		return binLines((1n << BigInt(padBits)) + v, true);
 }
 
 // ---------- 人性化大小 ----------

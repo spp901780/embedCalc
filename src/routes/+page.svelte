@@ -713,8 +713,8 @@
 			onpointercancel={onSplitterUp}
 			onkeydown={onSplitterKey}
 		><div class="splitter-grip"></div></div>
-		{#if calc.result ?? lastResult}
-			{@const r = calc.result ?? lastResult!}
+		{#if (calc.result ?? lastResult) !== null}
+			{@const r = (calc.result ?? lastResult)!}
 			<div class="result">
 				<!-- 当前结果同时显示三种进制（报错时保留最后结果，面板高度不变）；各行 hover 浮现一键复制 -->
 			<div class="res-lines">
@@ -790,26 +790,30 @@
 </main>
 
 <style>
+	:global(html) {
+		border-radius: 10px; /* 圆角在根元素，滚动时保持 */
+		overflow: hidden; /* 裁剪圆角 */
+	}
 	:global(body) {
 		margin: 0;
 		background: #14171c;
 		color: #d7dce2;
 		font-family: system-ui, sans-serif;
-		/* 无边框窗口:整体圆角 + 阴影由合成器绘制,这里只需圆角防内容溢出方角 */
-		border-radius: 10px;
-		overflow: hidden;
 	}
 	:global(html, body) { height: 100%; }
 	/* 视口高度弹性列布局：历史面板填充剩余空间，输入框与进制框优先完整显示（紧凑间距） */
+	/* 进制框内容过高时：先压缩历史面板至最小高度，之后允许整个页面垂直滚动 */
 	main {
 		box-sizing: border-box;
-		height: 100vh; max-width: 1080px;
+		min-height: 100vh; max-width: 1080px;
 		margin: 0 auto; padding: 8px 14px 8px;
 		display: flex; flex-direction: column;
+		border-radius: 10px; overflow: visible;
 	}
 
-	/* 自绘标题栏：通栏贴窗口顶部（负 margin 抵消 main padding），圆角与窗口一致 */
+	/* 自绘标题栏：sticky 固定在视口顶部，页面滚动时保持不动 */
 	.titlebar {
+		position: sticky; top: 0; z-index: 10;
 		flex: 0 0 auto;
 		display: flex; align-items: center; gap: 8px;
 		height: 34px;
@@ -1033,7 +1037,7 @@
 		min-height: 77px; position: relative;
 		display: flex; flex-direction: row; align-items: center; gap: 14px;
 		background: #10131a; border: 1px solid #2e5540; border-radius: 8px;
-		padding: 8px 12px; overflow: hidden;
+		padding: 8px 12px; overflow-x: auto; overflow-y: hidden;
 	}
 	/* 无结果时的占位框：仅保留极淡描边暗示分栏，撑满高度与输入框一致 */
 	.result-placeholder {
@@ -1092,6 +1096,7 @@
 	}
 
 	/* 历史记录面板：占据剩余空间，至少两行高度（2×22px 行高 + 头部），内部滚动 */
+	/* flex-shrink 允许被进制框压缩到 min-height，之后 main 允许页面滚动 */
 	.history {
 		flex: 1 1 auto; min-height: 76px;
 		display: flex; flex-direction: column;
@@ -1143,6 +1148,7 @@
 	.hist-draft-tag { flex: 0 0 auto; font-size: 10px; color: #4d9e6e; font-style: normal; }
 
 	/* 进制框：预留约 32 位数字高度（hex/dec 两行 + 4 行 bin），输入时框高不变、输入框不跳动 */
+	/* 内容完全展开不内部滚动；历史面板被压缩到极限后，由整个页面垂直滚动 */
 	.views {
 		flex: 0 0 auto;
 		box-sizing: border-box;
