@@ -1027,15 +1027,13 @@
 	}
 	@keyframes blink { 50% { opacity: 0.2; } }
 
-	/* 结果框与输入框高度一致（input-row 为 stretch 布局），min-height 与三行结果的自然高度一致，
-	   保证结果面板出现/消失/报错切换时行高恒定 */
-	/* 行布局：左侧三行进制列 + 右侧人性化大小附注（均垂直居中） */
+	/* 结果框相对定位，res-size 绝对定位于右上角层叠显示，不占布局空间 */
 	.result {
 		flex: 1 1 0; min-width: 0; box-sizing: border-box;
-		min-height: 77px;
+		min-height: 77px; position: relative;
 		display: flex; flex-direction: row; align-items: center; gap: 14px;
 		background: #10131a; border: 1px solid #2e5540; border-radius: 8px;
-		padding: 8px 12px; overflow-x: auto;
+		padding: 8px 12px; overflow: hidden;
 	}
 	/* 无结果时的占位框：仅保留极淡描边暗示分栏，撑满高度与输入框一致 */
 	.result-placeholder {
@@ -1044,13 +1042,13 @@
 		border-style: dashed;
 	}
 	.res-lines { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; justify-content: center; }
-	/* 人性化大小附注：左侧细分隔线与结果框描边同色，值亮、单位暗，视觉层级低于三行进制 */
+	/* 人性化大小附注：绝对定位于结果框右上角，层叠显示，不占布局空间 */
 	.res-size {
-		flex: 0 0 auto; align-self: center;
+		position: absolute; top: 8px; right: 12px;
 		padding-left: 14px; border-left: 1px solid #2e5540;
 		font-family: ui-monospace, 'SF Mono', Consolas, monospace;
 		font-size: 12px; line-height: 1.4; white-space: nowrap;
-		color: #66707c;
+		color: #66707c; background: #10131a80; padding-right: 2px;
 	}
 	.res-size .approx { margin-right: 4px; color: #4a5461; }
 	.res-size .size-val { color: #9aa4af; margin-right: 3px; }
@@ -1073,7 +1071,7 @@
 	.res-line code {
 		font-family: ui-monospace, 'SF Mono', Consolas, monospace;
 		font-size: 13px; color: #e8edf2;
-		flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+		flex: 1 1 auto; min-width: 0;
 	}
 	.res-line code.bin { font-size: 11px; color: #7ee0a3; letter-spacing: 0.02em; }
 

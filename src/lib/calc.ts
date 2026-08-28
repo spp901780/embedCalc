@@ -203,6 +203,8 @@ export function humanSize(v: bigint): string | null {
 	let div = 1024n;
 	// 选最大可用单位（该单位下数值 ≥ 1）
 	while (ui < units.length - 1 && v >= div * 1024n) { div *= 1024n; ui++; }
+	// 超过 1024E（最大单位的 1024 倍）时不再显示估算
+	if (v >= div * 1024n) return null;
 	// 四舍五入到 S 位小数：q = round(v * S / div)（BigInt 无小数，加半除数再整除模拟四舍五入）
 	let q = (v * S + div / 2n) / div;
 	// 舍入进位到 1024.00 → 升一级单位（恰为 1.00），避免出现 "1024.00 K"
