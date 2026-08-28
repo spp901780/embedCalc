@@ -168,6 +168,26 @@ export function resultBinLines(v: bigint): string[] {
 	return binLines((1n << BigInt(bits)) + v, true);
 }
 
+// ---------- 人性化大小 ----------
+
+/** 结果 ≥ 1024 时的人性化大小（1024 进制 K/M/G/…，两位小数）；负数或 < 1024 返回 null */
+export function humanSize(v: bigint): string | null {
+	if (v < 1024n) return null;
+	const units = ['K', 'M', 'G', 'T', 'P', 'E'];
+	const S = 100n; // 定点放大系数：100 = 保留 2 位小数
+	let ui = 0;
+	let div = 1024n;
+	// 选最大可用单位（该单位下数值 ≥ 1）
+	while (ui < units.length - 1 && v >= div * 1024n) { div *= 1024n; ui++; }
+	// 四舍五入到 S 位小数：q = round(v * S / div)（BigInt 无小数，加半除数再整除模拟四舍五入）
+	let q = (v * S + div / 2n) / div;
+	// 舍入进位到 1024.00 → 升一级单位（恰为 1.00），避免出现 "1024.00 K"
+	if (q >= 1024n * S && ui < units.length - 1) { q /= 1024n; ui++; }
+	// 小数部分不足两位必须补零：5 → "05"，否则 1.05 会错显示成 1.5
+	const frac = (q % S).toString().padStart(2, '0');
+	return `${q / S}.${frac} ${units[ui]}`;
+}
+
 // ---------- 光标模型辅助 ----------
 
 /** num token 文本中数字位的个数（不含前缀与 `_`） */

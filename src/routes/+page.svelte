@@ -1,7 +1,7 @@
 <script lang="ts">
 	import {
 		tokenize, parse, buildLayout, hexText, decText, binLines, resultBinLines,
-		numText, digitLen, digitToOffset, locateNum, convertDigit, bitMarkPositions,
+		numText, digitLen, digitToOffset, locateNum, convertDigit, bitMarkPositions, humanSize,
 		type Base, type Token
 	} from '$lib/calc';
 
@@ -563,9 +563,20 @@
 			{@const r = calc.result ?? lastResult!}
 			<div class="result" title="计算结果">
 				<!-- 当前结果同时显示三种进制（报错时保留最后结果，面板高度不变） -->
+			<div class="res-lines">
 				<div class="res-line"><span class="lbl">hex</span><code>{hexText(r)}</code></div>
 				<div class="res-line"><span class="lbl">dec</span><code>{decText(r)}</code></div>
 				<div class="res-line"><span class="lbl">bin</span><code class="bin">{resultBinLines(r).join(' ')}</code></div>
+			</div>
+			<!-- 结果 ≥ 1024 时右侧附注人性化大小（≈ 表示约等于，报错保留结果时同样跟随） -->
+			{#if humanSize(r)}
+				{@const size = humanSize(r)!}
+				<div class="res-size" title="按 1024 进制换算的大小">
+					<span class="approx">≈</span>
+					<span class="size-val">{size.slice(0, size.lastIndexOf(' '))}</span>
+					<span class="size-unit">{size.slice(size.lastIndexOf(' ') + 1)}</span>
+				</div>
+			{/if}
 			</div>
 		{:else}
 			<!-- 占位：保持 input-row 行高恒定，结果面板出现/消失时输入框不跳动 -->
@@ -716,15 +727,28 @@
 	@keyframes blink { 50% { opacity: 0.2; } }
 
 	/* min-height 与三行结果的自然高度一致，保证结果面板出现/消失/报错切换时 input-row 行高恒定 */
+	/* 行布局：左侧三行进制列 + 右侧人性化大小附注（均垂直居中） */
 	.result {
 		flex: 1; min-width: 0; box-sizing: border-box;
 		min-height: 77px;
-		display: flex; flex-direction: column; justify-content: center;
+		display: flex; flex-direction: row; align-items: center; gap: 14px;
 		background: #10131a; border: 1px solid #2e5540; border-radius: 8px;
 		padding: 8px 12px; overflow-x: auto;
 	}
 	/* 无结果时的占位框：透明无边框，仅撑开行高与输入框一致 */
 	.result-placeholder { background: transparent; border-color: transparent; }
+	.res-lines { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; justify-content: center; }
+	/* 人性化大小附注：左侧细分隔线与结果框描边同色，值亮、单位暗，视觉层级低于三行进制 */
+	.res-size {
+		flex: 0 0 auto; align-self: center;
+		padding-left: 14px; border-left: 1px solid #2e5540;
+		font-family: ui-monospace, 'SF Mono', Consolas, monospace;
+		font-size: 12px; line-height: 1.4; white-space: nowrap;
+		color: #66707c;
+	}
+	.res-size .approx { margin-right: 4px; color: #4a5461; }
+	.res-size .size-val { color: #9aa4af; margin-right: 3px; }
+	.res-size .size-unit { font-size: 10px; letter-spacing: 0.05em; }
 	.res-line { display: flex; gap: 10px; align-items: baseline; margin: 1px 0; white-space: nowrap; }
 	.lbl { width: 26px; font-size: 10px; color: #66707c; text-align: right; }
 	.res-line code {
