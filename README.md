@@ -5,7 +5,7 @@
 为嵌入式开发者设计的混合进制计算器：同一算式中自由混用十六进制、十进制和二进制数，
 以 C 语言风格语法进行位运算求值。
 
-在线尝试 ![](https://spp901780.github.io/embedCalc/)
+ 在线尝试 ![https://spp901780.github.io/embedCalc/](https://spp901780.github.io/embedCalc/)
 
 ## 使用说明
 
