@@ -21,6 +21,43 @@
 	// 位置记忆：tokenIndex -> 各进制下的逻辑位（从右数）
 	const digitMem = new Map<number, Partial<Record<Base, number>>>();
 
+	// ---------- 输入/结果 分栏宽度（拖动分隔条调整，持久化到 localStorage） ----------
+	const RATIO_KEY = 'embedcalc.splitRatio';
+	let splitRatio = $state(loadRatio());
+	function loadRatio(): number {
+		try {
+			const v = parseFloat(localStorage.getItem(RATIO_KEY) ?? '');
+			if (Number.isFinite(v) && v >= 0.3 && v <= 0.7) return v;
+		} catch { /* ignore */ }
+		return 0.56; // 默认输入框略宽（分隔位置偏右）
+	}
+	function persistRatio() {
+		try { localStorage.setItem(RATIO_KEY, String(splitRatio)); } catch { /* ignore */ }
+	}
+	let rowEl: HTMLDivElement | undefined = $state();
+	let dragging = $state(false);
+	function onSplitterDown(e: PointerEvent) {
+		e.preventDefault();
+		(e.target as HTMLElement).setPointerCapture(e.pointerId);
+		dragging = true;
+	}
+	function onSplitterMove(e: PointerEvent) {
+		if (!dragging || !rowEl) return;
+		const rect = rowEl.getBoundingClientRect();
+		const x = Math.min(Math.max(e.clientX - rect.left, 0), rect.width);
+		splitRatio = Math.min(0.7, Math.max(0.3, x / rect.width));
+	}
+	function onSplitterUp() {
+		if (!dragging) return;
+		dragging = false;
+		persistRatio();
+	}
+	function onSplitterKey(e: KeyboardEvent) {
+		const step = 0.02;
+		if (e.key === 'ArrowLeft') { splitRatio = Math.max(0.3, splitRatio - step); persistRatio(); e.preventDefault(); }
+		else if (e.key === 'ArrowRight') { splitRatio = Math.min(0.7, splitRatio + step); persistRatio(); e.preventDefault(); }
+	}
+
 	// ---------- 历史记录（localStorage 持久化，与原型约定一致：Web 版 localStorage） ----------
 	const HIST_KEY = 'embedcalc.history';
 	interface HistEntry { expr: string; res: string; hex: boolean; }
@@ -602,11 +639,14 @@
 		</section>
 	{/if}
 
-	<div class="input-row">
+	<div class="input-row" bind:this={rowEl} class:dragging>
 		<!-- 自绘输入框：keydown 接管 + 绝对定位光标条。等宽字体下光标 left = cursor × 1ch -->
+		<!-- 彩色流光边框：conic-gradient 在伪元素层旋转，主体层盖住中心，仅露出 1px 边框 -->
 		<div
 			class="expr-input"
 			class:focused
+			class:has-error={showError !== null}
+			style="flex: 0 1 calc({splitRatio * 100}% - 8px)"
 			role="textbox"
 			aria-label="算式输入"
 			tabindex="0"
@@ -617,6 +657,10 @@
 			onfocus={() => (focused = true)}
 			onblur={() => (focused = false)}
 		>
+			<!-- 空输入时的淡色示例：定位到 padding 区左上角，与 .inner 文字起点对齐 -->
+			{#if expr === '' && !focused}
+				<div class="placeholder">xDEADBEEF + b110 ^ x2 {'<<'} 2</div>
+			{/if}
 			<div class="inner">
 				{#each segments as seg}
 					<span
@@ -653,6 +697,21 @@
 				</div>
 			{/if}
 		</div>
+		<!-- 可拖动分隔条：调整输入框/结果框宽度比例，支持键盘 ←/→ 微调 -->
+		<!-- svelte-ignore a11y_no_noninteractive_tabindex a11y_no_noninteractive_element_interactions -->
+		<div
+			class="splitter"
+			role="separator"
+			aria-orientation="vertical"
+			aria-label="调整输入框与结果框宽度"
+			tabindex="0"
+			title="拖动调整左右宽度"
+			onpointerdown={onSplitterDown}
+			onpointermove={onSplitterMove}
+			onpointerup={onSplitterUp}
+			onpointercancel={onSplitterUp}
+			onkeydown={onSplitterKey}
+		><div class="splitter-grip"></div></div>
 		{#if calc.result ?? lastResult}
 			{@const r = calc.result ?? lastResult!}
 			<div class="result">
@@ -791,19 +850,125 @@
 	}
 	.preset-menu button:hover { background: #242b35; color: #d7dce2; }
 
-	.input-row { display: flex; gap: 12px; align-items: flex-start; flex: 0 0 auto; margin-top: 10px; }
+	.input-row { display: flex; gap: 1px; align-items: stretch; flex: 0 0 auto; margin-top: 10px; }
 
-	/* 自绘输入框 */
+	/* 自绘输入框。彩色流光彩边：双层背景 —— 底层是旋转的 conic 渐变（铺满 border 区），
+	   顶层实色背景裁到 padding-box，仅露出 border 那一圈；
+	   未聚焦：暗色慢速流动，提示输入位置；聚焦：亮色快速流动，视觉焦点明确 */
 	.expr-input {
-		flex: 1; min-width: 0; box-sizing: border-box;
-		background: #10131a; color: #e8edf2;
-		border: 1px solid #333a44; border-radius: 8px;
-		padding: 14px 14px 12px 14px; font-size: 17px;
+		position: relative;
+		min-width: 0; box-sizing: border-box;
+		color: #e8edf2;
+		border: 1.5px solid transparent; border-radius: 8px;
+		padding: 23px 14px 12px 14px; font-size: 17px;
 		font-family: ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, monospace;
 		outline: none; overflow-x: auto; overflow-y: visible;
 		cursor: text;
+		/* stretch 布局下保持内容顶部对齐，避免 bitmarks/hint 垂直漂移 */
+		display: flex; flex-direction: column; justify-content: flex-start;
+		/* 未聚焦：暗绿-暗紫慢速流转（低调提示位置） */
+		background:
+			linear-gradient(#10131a, #10131a) padding-box,
+			conic-gradient(
+				from var(--flow-angle, 0deg),
+				#24312a 0deg,
+				#2e5540 70deg,
+				#3a4a42 140deg,
+				#2a3a4a 210deg,
+				#3d2a52 280deg,
+				#2e5540 330deg,
+				#24312a 360deg
+			) border-box;
+		animation: border-flow 10s linear infinite;
+		transition: box-shadow 0.3s;
 	}
-	.expr-input.focused { border-color: #4d9e6e; }
+	.expr-input.focused {
+		/* 聚焦：亮绿-青-紫快速流转（视觉焦点） */
+		background:
+			linear-gradient(#10131a, #10131a) padding-box,
+			conic-gradient(
+				from var(--flow-angle, 0deg),
+				#2e5540 0deg,
+				#4d9e6e 70deg,
+				#7ee0a3 140deg,
+				#7ec8ff 210deg,
+				#b48ce8 280deg,
+				#4d9e6e 330deg,
+				#2e5540 360deg
+			) border-box;
+		animation-duration: 4s;
+		box-shadow: 0 0 12px rgba(126, 224, 163, 0.22);
+	}
+	/* @property 使自定义属性可动画（Chromium / Safari 16.4+）；不支持则静止显示渐变 */
+	@property --flow-angle {
+		syntax: '<angle>';
+		initial-value: 0deg;
+		inherits: false;
+	}
+	@keyframes border-flow {
+		to { --flow-angle: 360deg; }
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.expr-input { animation: none; }
+	}
+
+	.expr-input.has-error {
+		/* 错误：暗红-暗橙流转，提示输入有误 */
+		background:
+			linear-gradient(#10131a, #10131a) padding-box,
+			conic-gradient(
+				from var(--flow-angle, 0deg),
+				#4a2a2a 0deg,
+				#8a4a3a 70deg,
+				#b45a4a 140deg,
+				#c46a5a 210deg,
+				#8a4a3a 280deg,
+				#4a2a2a 330deg,
+				#4a2a2a 360deg
+			) border-box;
+	}
+	.expr-input.has-error.focused {
+		background:
+			linear-gradient(#10131a, #10131a) padding-box,
+			conic-gradient(
+				from var(--flow-angle, 0deg),
+				#5c2b27 0deg,
+				#c45c4c 70deg,
+				#ff9d8a 140deg,
+				#e8a07d 210deg,
+				#c45c4c 280deg,
+				#5c2b27 330deg,
+				#5c2b27 360deg
+			) border-box;
+		box-shadow: 0 0 12px rgba(255, 157, 138, 0.22);
+	}
+
+	/* 空输入框时的淡色示例提示：绝对定位于 .expr-input 的 padding 区左上角，
+	   与 .inner 文字起点对齐（14px padding + 1.5px border），不干扰字符宽度基准 */
+	.placeholder {
+		position: absolute; top: 23px; left: 15.5px;
+		color: #3d4552; font-style: italic;
+		pointer-events: none; user-select: none;
+		white-space: pre; line-height: 1.5;
+	}
+
+	/* 分栏拖动条：2px 细线 + 8px 热区，hover/拖动时显示绿色指示，支持键盘 ←/→ */
+	.splitter {
+		flex: 0 0 2px; margin: 0; padding: 0 4px;
+		display: flex; align-items: center; justify-content: center;
+		cursor: col-resize; z-index: 6;
+		touch-action: none;
+		outline: none;
+	}
+	.splitter-grip {
+		width: 2px; height: 20px; border-radius: 1px;
+		background: #333a44;
+		transition: background 0.15s, height 0.15s;
+	}
+	.splitter:hover .splitter-grip,
+	.splitter:focus-visible .splitter-grip,
+	.input-row.dragging .splitter-grip { background: #4d9e6e; height: 55%; }
+	.input-row.dragging { cursor: col-resize; user-select: none; }
 	.expr-input .inner {
 		position: relative; width: max-content; min-width: 100%;
 		white-space: pre; line-height: 1.5;
@@ -815,16 +980,17 @@
 	/* 光标在数字内时，数字中心上方 ▲ / 下方 ▼（指示可按 ↑/↓ 切换进制） */
 	.base-hint {
 		position: absolute;
-		z-index: 3; /* 定位于输入框 padding 区内，抬高层级防止被相邻面板遮挡 */
-		height: 8px; line-height: 8px; /* 与 glyph 等高，垂直居中不受父行高影响 */
-		color: #4d9e6e;
-		transform: translateX(-50%); /* 水平居中于数字中心 */
+		z-index: 3;
+		height: 8px; line-height: 8px;
+		color: #6bcf8f;
+		transform: translateX(-50%);
 		pointer-events: none; user-select: none;
 	}
 	.base-hint span { font-size: 8px; display: inline-block; line-height: 8px; vertical-align: top; }
-	/* 对称定位：以文本行（高 1.5em = 25.5px）为基准，上下各露出相同的 3.5px 间距 */
-	.base-hint.hint-up { top: -11px; bottom: auto; }
-	.base-hint.hint-down { top: auto; bottom: -11px; }
+	/* 上方 ▲：位于文字行上方 padding 区内（相对 .inner） */
+	.base-hint.hint-up { top: -14px; bottom: auto; }
+	/* 下方 ▼：位于 bitmarks 区域内，不超出输入框边界（相对 .inner） */
+	.base-hint.hint-down { top: auto; bottom: -19px; }
 	/* Ctrl+←/→ 跳词后目标词元的短暂高亮 */
 	.expr-input .flash { animation: token-flash 0.5s ease-out; border-radius: 3px; }
 	@keyframes token-flash {
@@ -845,8 +1011,9 @@
 		font-family: ui-monospace, monospace;
 	}
 	.caret {
-		position: absolute; top: 1px; bottom: 1px; width: 2px;
-		background: #e8edf2;
+		position: absolute; top: 0; height: 25.5px; width: 2.5px;
+		background: #f0f4f8;
+		box-shadow: 0 0 4px rgba(240, 244, 248, 0.4);
 		animation: blink 1.1s ease-in-out infinite;
 		pointer-events: none;
 	}
@@ -859,17 +1026,22 @@
 	}
 	@keyframes blink { 50% { opacity: 0.2; } }
 
-	/* min-height 与三行结果的自然高度一致，保证结果面板出现/消失/报错切换时 input-row 行高恒定 */
+	/* 结果框与输入框高度一致（input-row 为 stretch 布局），min-height 与三行结果的自然高度一致，
+	   保证结果面板出现/消失/报错切换时行高恒定 */
 	/* 行布局：左侧三行进制列 + 右侧人性化大小附注（均垂直居中） */
 	.result {
-		flex: 1; min-width: 0; box-sizing: border-box;
+		flex: 1 1 0; min-width: 0; box-sizing: border-box;
 		min-height: 77px;
 		display: flex; flex-direction: row; align-items: center; gap: 14px;
 		background: #10131a; border: 1px solid #2e5540; border-radius: 8px;
 		padding: 8px 12px; overflow-x: auto;
 	}
-	/* 无结果时的占位框：透明无边框，仅撑开行高与输入框一致 */
-	.result-placeholder { background: transparent; border-color: transparent; }
+	/* 无结果时的占位框：仅保留极淡描边暗示分栏，撑满高度与输入框一致 */
+	.result-placeholder {
+		background: transparent;
+		border-color: #23293066;
+		border-style: dashed;
+	}
 	.res-lines { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; justify-content: center; }
 	/* 人性化大小附注：左侧细分隔线与结果框描边同色，值亮、单位暗，视觉层级低于三行进制 */
 	.res-size {
@@ -882,7 +1054,7 @@
 	.res-size .approx { margin-right: 4px; color: #4a5461; }
 	.res-size .size-val { color: #9aa4af; margin-right: 3px; }
 	.res-size .size-unit { font-size: 10px; letter-spacing: 0.05em; }
-	.res-line { display: flex; gap: 10px; align-items: baseline; margin: 1px 0; white-space: nowrap; }
+	.res-line { display: flex; gap: 10px; align-items: baseline; margin: 1px 0; white-space: nowrap; min-height: 20px; }
 	/* 一键复制按钮：默认隐身，hover 该行浮现；复制成功 1.2s 内显示绿色 ✓ */
 	.copy-btn {
 		flex: 0 0 auto; align-self: center;
@@ -896,10 +1068,11 @@
 	.copy-btn:hover { color: #d7dce2; background: #1e2530; }
 	.copy-btn.done { color: #7ee0a3; }
 	.copy-btn .ok { font-size: 12px; line-height: 1; }
-	.lbl { width: 26px; font-size: 10px; color: #66707c; text-align: right; }
+	.lbl { width: 26px; font-size: 10px; color: #66707c; text-align: right; flex: 0 0 auto; }
 	.res-line code {
 		font-family: ui-monospace, 'SF Mono', Consolas, monospace;
 		font-size: 13px; color: #e8edf2;
+		flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
 	}
 	.res-line code.bin { font-size: 11px; color: #7ee0a3; letter-spacing: 0.02em; }
 
