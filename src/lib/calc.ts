@@ -1,5 +1,5 @@
 // 词法 + Pratt 解析 + BigInt 求值 + 布局模型（TypeScript 版）
-// 字面量: x1A / 0x1A (hex), b0110 / 0b0110 (bin), d42 / 42 / u7 (dec)
+// 字面量: x1A / 0x1A (hex), b0110 / 0b0110 (bin), d42 / 42 / u7 (dec), 'A' / '\n' (字符)
 // 数字内允许 `_` 分隔符（如 b1111_0000）
 
 export type Base = 2 | 10 | 16;
@@ -53,6 +53,30 @@ export function tokenize(src: string): Token[] {
 				throw new Error(`位置 ${start + 1}: "${src.slice(start, i)}" 不是合法的 ${base} 进制数字`);
 			}
 			tokens.push({ kind: 'num', id: numId++, value, base, text: src.slice(start, i), start, end: i, digitStart: dstart });
+			continue;
+		}
+
+		// 字符字面量 'A' / '\n' / '\'' 等（值 = 字符码，按十进制参与运算）
+		if (c === "'") {
+			const start = i;
+			i++;
+			let code: number;
+			if (src[i] === '\\') {
+				i++;
+				const esc = src[i];
+				const map: Record<string, number> = { n: 10, t: 9, r: 13, '0': 0, '\\': 92, "'": 39 };
+				if (esc === undefined || !(esc in map)) throw new Error(`位置 ${start + 1}: 不支持的转义 "\\${esc ?? ''}"`);
+				code = map[esc];
+				i++;
+			} else if (src[i] !== undefined && src[i] !== "'") {
+				code = src.charCodeAt(i);
+				i++;
+			} else {
+				throw new Error(`位置 ${start + 1}: 字符字面量不能为空`);
+			}
+			if (src[i] !== "'") throw new Error(`位置 ${start + 1}: 缺少闭合引号`);
+			i++;
+			tokens.push({ kind: 'num', id: numId++, value: BigInt(code), base: 10, text: src.slice(start, i), start, end: i, digitStart: start + 1 });
 			continue;
 		}
 

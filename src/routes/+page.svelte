@@ -137,6 +137,27 @@
 	function openPreset() { clearTimeout(presetCloseTimer); presetMenuOpen = true; }
 	function scheduleClosePreset() { presetCloseTimer = setTimeout(() => { presetMenuOpen = false; }, 150); }
 
+	// ---------- 结果一键复制（hex/dec/bin 各行右侧，复制成功短暂变 ✓） ----------
+	let copied = $state<string | null>(null);
+	let copyTimer: ReturnType<typeof setTimeout> | undefined;
+	async function copyResult(text: string, key: string) {
+		try { await navigator.clipboard.writeText(text); } catch { /* 剪贴板不可用时静默 */ }
+		clearTimeout(copyTimer);
+		copied = key;
+		copyTimer = setTimeout(() => { copied = null; }, 1200);
+	}
+
+	// ---------- 窗口置顶（Tauri 桌面端专属，浏览器中不显示按钮） ----------
+	const isTauri = '__TAURI_INTERNALS__' in window;
+	let pinned = $state(false);
+	async function togglePin() {
+		try {
+			const { getCurrentWindow } = await import('@tauri-apps/api/window');
+			await getCurrentWindow().setAlwaysOnTop(!pinned);
+			pinned = !pinned;
+		} catch { /* 权限或环境异常时保持原状态 */ }
+	}
+
 	// ---------- 词元短暂高亮（Ctrl+←/→ 跳词后提示目标） ----------
 	let flashToken = $state<number | null>(null);
 	let flashTimer: ReturnType<typeof setTimeout> | undefined;
@@ -152,6 +173,7 @@
 		['地址计算', 'x40000000 + x204*4 + 13'],
 		['掩码组合', '~xFF & x12345678 | b1111_0000 << 8'],
 		['64 位取值', 'x123456789ABCDEF0 >> 8 & xFFFFFFFF'],
+		['字符运算', "'A' ^ x20"],
 	];
 
 	// 词法分析失败时 tokens 为 null（输入框仍可编辑，只是无高亮/无求值），同时捕获词法错误信息
@@ -464,6 +486,18 @@
 				</div>
 			{/if}
 		</div>
+		<!-- 窗口置顶：Tauri 桌面端专属（浏览器预览时隐藏） -->
+		{#if isTauri}
+			<button
+				class="pin-btn"
+				class:active={pinned}
+				aria-pressed={pinned}
+				title={pinned ? '取消窗口置顶' : '窗口置顶'}
+				onclick={togglePin}
+			>
+				<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
+			</button>
+		{/if}
 	</header>
 
 	<!-- 历史记录面板：位于输入框上方，结果随算式记录，向上滚动刷新 -->
@@ -562,11 +596,26 @@
 		{#if calc.result ?? lastResult}
 			{@const r = calc.result ?? lastResult!}
 			<div class="result" title="计算结果">
-				<!-- 当前结果同时显示三种进制（报错时保留最后结果，面板高度不变） -->
+				<!-- 当前结果同时显示三种进制（报错时保留最后结果，面板高度不变）；各行 hover 浮现一键复制 -->
 			<div class="res-lines">
-				<div class="res-line"><span class="lbl">hex</span><code>{hexText(r)}</code></div>
-				<div class="res-line"><span class="lbl">dec</span><code>{decText(r)}</code></div>
-				<div class="res-line"><span class="lbl">bin</span><code class="bin">{resultBinLines(r).join(' ')}</code></div>
+				<div class="res-line">
+					<span class="lbl">hex</span><code>{hexText(r)}</code>
+					<button class="copy-btn" class:done={copied === 'hex'} title="复制 hex 结果" onclick={() => copyResult(hexText(r), 'hex')}>
+						{#if copied === 'hex'}<span class="ok">✓</span>{:else}<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5v-2A1.5 1.5 0 0 0 9 2H3.5A1.5 1.5 0 0 0 2 3.5V9a1.5 1.5 0 0 0 1.5 1.5h2"/></svg>{/if}
+					</button>
+				</div>
+				<div class="res-line">
+					<span class="lbl">dec</span><code>{decText(r)}</code>
+					<button class="copy-btn" class:done={copied === 'dec'} title="复制 dec 结果" onclick={() => copyResult(decText(r), 'dec')}>
+						{#if copied === 'dec'}<span class="ok">✓</span>{:else}<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5v-2A1.5 1.5 0 0 0 9 2H3.5A1.5 1.5 0 0 0 2 3.5V9a1.5 1.5 0 0 0 1.5 1.5h2"/></svg>{/if}
+					</button>
+				</div>
+				<div class="res-line">
+					<span class="lbl">bin</span><code class="bin">{resultBinLines(r).join(' ')}</code>
+					<button class="copy-btn" class:done={copied === 'bin'} title="复制 bin 结果" onclick={() => copyResult(resultBinLines(r).join(' '), 'bin')}>
+						{#if copied === 'bin'}<span class="ok">✓</span>{:else}<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5v-2A1.5 1.5 0 0 0 9 2H3.5A1.5 1.5 0 0 0 2 3.5V9a1.5 1.5 0 0 0 1.5 1.5h2"/></svg>{/if}
+					</button>
+				</div>
 			</div>
 			<!-- 结果 ≥ 1024 时右侧附注人性化大小（≈ 表示约等于，报错保留结果时同样跟随） -->
 			{#if humanSize(r)}
@@ -659,6 +708,18 @@
 	}
 	.preset-menu button:hover { background: #242b35; color: #d7dce2; }
 
+	/* 窗口置顶按钮（Tauri 桌面端）：右侧常驻，激活时绿色高亮 */
+	.pin-btn {
+		margin-left: auto;
+		width: 28px; height: 24px;
+		display: inline-flex; align-items: center; justify-content: center;
+		background: #1d2128; color: #9aa4af; border: 1px solid #2c333d;
+		border-radius: 6px; cursor: pointer;
+		transition: color 0.12s, border-color 0.12s, background 0.12s;
+	}
+	.pin-btn:hover { color: #d7dce2; border-color: #46505c; }
+	.pin-btn.active { color: #7ee0a3; border-color: #2e5540; background: #16211b; }
+
 	.input-row { display: flex; gap: 12px; align-items: flex-start; flex: 0 0 auto; margin-top: 14px; }
 
 	/* 自绘输入框 */
@@ -750,6 +811,19 @@
 	.res-size .size-val { color: #9aa4af; margin-right: 3px; }
 	.res-size .size-unit { font-size: 10px; letter-spacing: 0.05em; }
 	.res-line { display: flex; gap: 10px; align-items: baseline; margin: 1px 0; white-space: nowrap; }
+	/* 一键复制按钮：默认隐身，hover 该行浮现；复制成功 1.2s 内显示绿色 ✓ */
+	.copy-btn {
+		flex: 0 0 auto; align-self: center;
+		width: 18px; height: 18px; margin-left: 4px; padding: 0;
+		display: inline-flex; align-items: center; justify-content: center;
+		background: transparent; border: none; border-radius: 4px;
+		color: #5c6672; cursor: pointer; line-height: 1;
+		opacity: 0; transition: opacity 0.12s, color 0.12s, background 0.12s;
+	}
+	.res-line:hover .copy-btn, .copy-btn.done { opacity: 1; }
+	.copy-btn:hover { color: #d7dce2; background: #1e2530; }
+	.copy-btn.done { color: #7ee0a3; }
+	.copy-btn .ok { font-size: 12px; line-height: 1; }
 	.lbl { width: 26px; font-size: 10px; color: #66707c; text-align: right; }
 	.res-line code {
 		font-family: ui-monospace, 'SF Mono', Consolas, monospace;
