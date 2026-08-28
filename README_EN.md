@@ -2,28 +2,26 @@
 
 **[简体中文](README.md)** | English
 
-## Quick Start
+A mixed-radix calculator designed for embedded developers: freely mix hexadecimal, decimal, and binary numbers
+in the same expression, with C-style syntax for bitwise operations.
 
-**Type an expression, get the result instantly.**
+## Usage
 
-- Hexadecimal numbers use `x` or `0x` prefix: `xFF`, `0xDEADBEEF`
-- Binary numbers use `b` or `0b` prefix: `b110`, `0b1010_0011`
-- Decimal numbers are written directly: `255`, `1024`, or with `d` `0d` prefix
-- Supports C-style operators: `+ - * / %`, `& | ^ ~`, `<< >>`, `()`
+**Type an expression, get the result instantly.** Hexadecimal uses the `x`/`0x` prefix, binary uses `b`/`0b`,
+decimal is written directly. Supports C-style operators `+ - * / %` `& | ^ ~` `<< >>` `()`:
 
-**Example**: Type `xFF + 10` and press Enter to get `265`.
+```
+xDEADBEEF + b110 ^ x2 << 2
+```
 
 ![1787739503678](image/README/1787739503678.png)
 
-### Common Operations
-
-| Operation           | How to                                                                        |
-| ------------------- | ----------------------------------------------------------------------------- |
-| Calculate           | Results update instantly as you type                                          |
-| Switch number radix | Move cursor inside a number, press **↑** (to higher radix) or **↓** (to lower radix) |
-| Browse history      | Press **Ctrl+↑** to browse history, **Ctrl+↓** to go back, **Esc** to exit   |
-| Jump between tokens | **Ctrl+← / Ctrl+→** to quickly jump to previous/next number or operator      |
-| Save record         | Press **Enter** to save the expression to history                            |
+- **Multi-radix display**: Results shown simultaneously in hex / dec / bin
+- **Per-number radix switching**: Move cursor into a number, press **↑/↓** to switch between hex↔dec↔bin
+- **Bit position annotations**: Binary numbers automatically show bit positions for each 8-bit group (LSB = 0)
+- **Token highlighting**: **Ctrl+←/→** jumps between tokens with a brief flash; linked nibble highlighting in the view below
+- **History**: **Enter** to save expressions, **Ctrl+↑/↓** to browse history (current expression auto-cached as last line), **Esc** to exit
+- **BigInt full precision**: No precision loss for 64-bit and larger integers, pure mathematical evaluation without bit-width truncation
 
 ### Notes
 
@@ -40,26 +38,11 @@ Download the installer for your platform from the [Releases page](https://github
 
 | Platform | Format |
 |----------|--------|
-| Linux (x64) | `.deb`, `.rpm` |
+| Linux (x64 / ARM) | `.deb`, `.rpm` |
 | macOS (Apple Silicon / Intel) | `.dmg` |
 | Windows (x64) | `.msi`, `.exe` |
 
 ---
-
-## Installation & Development
-
-A mixed-radix calculator designed for embedded developers. Freely mix hexadecimal, decimal, and binary numbers
-in the same expression, with C-style syntax for bitwise operations.
-
-## Features
-
-- **Mixed-radix input**: `xDEADBEEF + b110 ^ x2 << 2` — no manual conversion needed
-- **Multi-radix display**: Results shown simultaneously in hex / dec / bin
-- **Per-number radix switching**: Move cursor into a number, press ↑/↓ to switch between hex↔dec↔bin
-- **Bit position annotations**: Binary numbers automatically show bit positions for each 8-bit group (LSB = 0)
-- **Token highlighting**: Ctrl+←/→ jumps between tokens with a brief flash; linked nibble highlighting in the multi-radix view below
-- **History**: Enter to save expressions, Ctrl+↑/↓ to browse history (current expression auto-cached as last line), Esc to exit
-- **BigInt full precision**: No precision loss for 64-bit and larger integers, pure mathematical evaluation without bit-width truncation
 
 ## Tech Stack
 

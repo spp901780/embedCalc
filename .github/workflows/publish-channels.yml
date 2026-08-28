@@ -1,82 +1,64 @@
 # ============================================================
-#  RPM 仓库发布工作流
+#  前端 GitHub Pages 发布工作流
 #  触发条件：在 GitHub 手动将 draft release 点击 "Publish" 后自动运行
+#  将 SvelteKit 静态前端部署到 GitHub Pages
 # ============================================================
 
-name: Publish RPM Repo
+name: Deploy Frontend to GitHub Pages
 
 on:
   release:
     types: [published]
 
 permissions:
-  contents: write
+  contents: read
+  pages: write
+  id-token: write
+
+# 只允许一个并发部署，跳过排队中的运行，但不取消正在进行的运行
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
 
 jobs:
-  rpm-repo:
-    name: 📦 更新 RPM 仓库
+  build:
+    name: 🏗️ 构建前端
     runs-on: ubuntu-latest
     if: "!github.event.release.prerelease"
     steps:
-      - name: Checkout 主分支
+      - name: Checkout 代码
         uses: actions/checkout@v4
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
         with:
-          path: main
+          version: latest
 
-      - name: Checkout rpm-repo 分支
-        uses: actions/checkout@v4
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
         with:
-          ref: rpm-repo
-          path: repo
-          fetch-depth: 0
+          node-version: 20
+          cache: pnpm
 
-      - name: 下载 RPM 包
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          cd repo
-          mkdir -p rpm-repo
-          gh release download "${{ github.event.release.tag_name }}" \
-            --repo "${{ github.repository }}" \
-            --pattern '*.rpm' --dir rpm-repo
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
 
-      - name: 导入 GPG 私钥
-        env:
-          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
-        run: |
-          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
-          # 信任导入的密钥（ultimate trust）
-          KEY_ID=$(gpg --list-keys --keyid-format long | grep -A1 '^pub' | tail -1 | awk '{print $1}')
-          echo "${KEY_ID}:6:" | gpg --import-ownertrust
+      - name: 构建前端
+        run: pnpm build
 
-      - name: 更新仓库元数据
-        run: |
-          cd repo
-          sudo apt-get update
-          sudo apt-get install -y createrepo-c
-          cd rpm-repo
-          createrepo_c --update .
-          cd ..
-          # 同步仓库配置文件（main/ 是 repo/ 的兄弟目录）
-          cp ../main/packaging/rpm/embedcalc.repo .
+      - name: 上传 Pages 产物
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: build
 
-      - name: 签名仓库元数据并导出公钥
-        run: |
-          cd repo/rpm-repo
-          # 签名 repomd.xml
-          gpg --batch --yes --detach-sign --armor repodata/repomd.xml
-          # 导出公钥供用户导入
-          gpg --export --armor > repodata/repomd.xml.key
-
-      - name: 提交并推送
-        run: |
-          cd repo
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -A
-          if git diff --cached --quiet; then
-            echo "RPM 仓库无变化，跳过提交"
-          else
-            git commit -m "Update RPM packages for ${{ github.event.release.tag_name }}"
-            git push
-          fi
+  deploy:
+    name: 🚀 部署到 GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 部署到 GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
