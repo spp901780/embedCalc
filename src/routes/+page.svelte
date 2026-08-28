@@ -31,6 +31,27 @@
 	// Ctrl+↑ 进入历史浏览时，把当前算式缓存为末行草稿（永远只保留一行、不写入持久历史）
 	let draft = $state('');
 	let browsing = $state(false);
+	// 历史面板折叠态：折叠后仅显示头部单行，窗口最小高度可大幅压缩
+	// histManualCollapse: 用户手动折叠 → 不自动展开
+	// histCollapsed: 实际显示状态(手动折叠 || 窗口过矮自动折叠)
+	let histManualCollapse = $state(false);
+	let histAutoCollapsed = $state(false);
+	let histCollapsed = $derived(histManualCollapse || histAutoCollapsed);
+
+	// 自动折叠：窗口剩余空间不足时折叠历史面板,空间恢复时自动展开(手动折叠优先)
+	let mainEl: HTMLElement | undefined = $state();
+	let autoCollapseThreshold = 360; // 视口低于此高度(px)时自动折叠历史面板
+	$effect(() => {
+		const el = mainEl;
+		if (!el || typeof ResizeObserver === 'undefined') return;
+		const ro = new ResizeObserver(([entry]) => {
+			const h = entry.contentRect.height;
+			if (h < autoCollapseThreshold) { histAutoCollapsed = true; }
+			else if (!histManualCollapse) { histAutoCollapsed = false; }
+		});
+		ro.observe(el);
+		return () => ro.disconnect();
+	});
 
 	// 表达式含 2/16 进制数 → 结果显示 hex，否则显示十进制
 	function resultIsHex(toks: Token[] | null): boolean {
@@ -145,6 +166,39 @@
 		clearTimeout(copyTimer);
 		copied = key;
 		copyTimer = setTimeout(() => { copied = null; }, 1200);
+	}
+
+	// ---------- 自绘标题栏：窗口控制 + 手动拖拽（Tauri 桌面端专属，浏览器中隐藏） ----------
+	const isTauri = '__TAURI_INTERNALS__' in window;
+	let pinned = $state(false);
+	async function togglePin() {
+		try {
+			const { getCurrentWindow } = await import('@tauri-apps/api/window');
+			await getCurrentWindow().setAlwaysOnTop(!pinned);
+			pinned = !pinned;
+		} catch { /* 权限或环境异常时保持原状态 */ }
+	}
+	async function winMinimize() {
+		try { const { getCurrentWindow } = await import('@tauri-apps/api/window'); await getCurrentWindow().minimize(); } catch { /* ignore */ }
+	}
+	async function winClose() {
+		try { const { getCurrentWindow } = await import('@tauri-apps/api/window'); await getCurrentWindow().close(); } catch { /* ignore */ }
+	}
+	// 标题栏手动拖拽:不用 data-tauri-drag-region(它会与 tao 的边缘 resize hit-test 抢事件、导致边缘光标消失)。
+	// 排除按钮与窗口边缘(左/上/右 6px,留给系统 resize),其余区域按下才发起拖拽。
+	async function onTitlebarDown(e: MouseEvent) {
+		if (!isTauri || e.button !== 0) return;
+		if ((e.target as HTMLElement).closest('button, .preset-menu')) return;
+		const EDGE = 6;
+		if (e.clientY < EDGE || e.clientX < EDGE || e.clientX > window.innerWidth - EDGE) return;
+		try { const { getCurrentWindow } = await import('@tauri-apps/api/window'); await getCurrentWindow().startDragging(); } catch { /* ignore */ }
+	}
+	// 双击标题栏切换最大化(同样排除按钮与边缘)
+	async function onTitlebarDbl(e: MouseEvent) {
+		if (!isTauri || (e.target as HTMLElement).closest('button, .preset-menu')) return;
+		const EDGE = 6;
+		if (e.clientY < EDGE || e.clientX < EDGE || e.clientX > window.innerWidth - EDGE) return;
+		try { const { getCurrentWindow } = await import('@tauri-apps/api/window'); await getCurrentWindow().toggleMaximize(); } catch { /* ignore */ }
 	}
 
 	// ---------- 词元短暂高亮（Ctrl+←/→ 跳词后提示目标） ----------
@@ -456,15 +510,22 @@
 	<title>EmbedCalc - 混合进制计算器</title>
 </svelte:head>
 
-<main>
-	<!-- 紧凑布局：窗口标题由系统标题栏承担，内容区不再放标题行；示例入口收进历史面板头部 -->
-	<section class="history">
-		<div class="hist-head">
-			<span class="hist-title">历史记录 <span class="hist-hint">Enter 保存 · Ctrl+↑/↓ 翻阅 · 点击回填 · Esc 退出</span></span>
+<main bind:this={mainEl}>
+	<!-- 自绘标题栏(无边框窗口):左侧标题+折叠态历史控制,右侧示例+窗口按钮 -->
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div class="titlebar" onmousedown={onTitlebarDown} ondblclick={onTitlebarDbl}>
+		<span class="titlebar-name">EmbedCalc</span>
+		{#if histCollapsed}
+			<button class="titlebar-btn icon" title="展开历史记录" onclick={() => { histManualCollapse = false; histAutoCollapsed = false; }}>
+				<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>
+			</button>
+			<span class="titlebar-hint">历史记录</span>
+		{/if}
+		<div class="titlebar-right">
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div class="preset-wrap" role="presentation" onmouseenter={openPreset} onmouseleave={scheduleClosePreset}>
 				<button
-					class="preset-toggle"
+					class="titlebar-btn"
 					aria-expanded={presetMenuOpen}
 					onclick={() => { clearTimeout(presetCloseTimer); presetMenuOpen = !presetMenuOpen; }}
 				>示例 ▾</button>
@@ -476,41 +537,70 @@
 					</div>
 				{/if}
 			</div>
+			{#if isTauri}
+				<button
+					class="titlebar-btn icon"
+					class:active={pinned}
+					aria-pressed={pinned}
+					title={pinned ? '取消窗口置顶' : '窗口置顶'}
+					onclick={togglePin}
+				>
+					<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
+				</button>
+				<button class="titlebar-btn icon" title="最小化" onclick={winMinimize}>
+					<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/></svg>
+				</button>
+				<button class="titlebar-btn icon close" title="关闭" onclick={winClose}>
+					<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+				</button>
+			{/if}
+		</div>
+	</div>
+
+	<!-- 历史面板：展开态显示完整面板(头部+列表)，折叠态完全隐藏(控制项已并入标题栏) -->
+	{#if !histCollapsed}
+		<section class="history">
+			<div class="hist-head">
+				<button class="hist-collapse-btn" title="折叠历史记录" onclick={() => { histManualCollapse = true; }}>
+					<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 10l4-4 4 4"/></svg>
+				</button>
+				<span class="hist-title">历史记录 <span class="hist-hint">Enter 保存 · Ctrl+↑/↓ 翻阅 · 点击回填 · Esc 退出</span></span>
 			{#if history.length > 0}
 				<button class="hist-clear" onclick={clearHistory}>清空</button>
 			{/if}
 		</div>
 		{#if history.length > 0 || (browsing && draft !== '')}
-			<ul class="hist-list" bind:this={histListEl}>
-				{#each history as h, i}
-					<li>
-						<button
-							class="hist-item"
-							class:current={histPos === i}
-							onclick={() => clickHistoryItem(i)}
-						>
-							<span class="hist-expr">{h.expr}</span>
-							<span class="hist-res" class:hex-res={h.hex}>{h.res}</span>
-						</button>
-					</li>
-				{/each}
-				{#if browsing && draft !== ''}
-					<li>
-						<button
-							class="hist-item draft"
-							class:current={histPos === -2}
-							onclick={() => { if (!browsing) { draft = expr; browsing = true; } histPos = -2; expr = draft; cursor = expr.length; inputEl?.focus(); }}
-						>
-							<span class="hist-expr">{draft}</span>
-							<span class="hist-draft-tag">当前算式</span>
-						</button>
-					</li>
-				{/if}
-			</ul>
-		{:else}
-			<div class="hist-empty">暂无记录 —— 输入算式后按 Enter 保存</div>
-		{/if}
-	</section>
+				<ul class="hist-list" bind:this={histListEl}>
+					{#each history as h, i}
+						<li>
+							<button
+								class="hist-item"
+								class:current={histPos === i}
+								onclick={() => clickHistoryItem(i)}
+							>
+								<span class="hist-expr">{h.expr}</span>
+								<span class="hist-res" class:hex-res={h.hex}>{h.res}</span>
+							</button>
+						</li>
+					{/each}
+					{#if browsing && draft !== ''}
+						<li>
+							<button
+								class="hist-item draft"
+								class:current={histPos === -2}
+								onclick={() => { if (!browsing) { draft = expr; browsing = true; } histPos = -2; expr = draft; cursor = expr.length; inputEl?.focus(); }}
+							>
+								<span class="hist-expr">{draft}</span>
+								<span class="hist-draft-tag">当前算式</span>
+							</button>
+						</li>
+					{/if}
+				</ul>
+			{:else}
+				<div class="hist-empty">暂无记录 —— 输入算式后按 Enter 保存</div>
+			{/if}
+		</section>
+	{/if}
 
 	<div class="input-row">
 		<!-- 自绘输入框：keydown 接管 + 绝对定位光标条。等宽字体下光标 left = cursor × 1ch -->
@@ -565,7 +655,7 @@
 		</div>
 		{#if calc.result ?? lastResult}
 			{@const r = calc.result ?? lastResult!}
-			<div class="result" title="计算结果">
+			<div class="result">
 				<!-- 当前结果同时显示三种进制（报错时保留最后结果，面板高度不变）；各行 hover 浮现一键复制 -->
 			<div class="res-lines">
 				<div class="res-line">
@@ -645,10 +735,12 @@
 		background: #14171c;
 		color: #d7dce2;
 		font-family: system-ui, sans-serif;
+		/* 无边框窗口:整体圆角 + 阴影由合成器绘制,这里只需圆角防内容溢出方角 */
+		border-radius: 10px;
+		overflow: hidden;
 	}
 	:global(html, body) { height: 100%; }
 	/* 视口高度弹性列布局：历史面板填充剩余空间，输入框与进制框优先完整显示（紧凑间距） */
-	/* 窗口标题由系统标题栏承担，内容区不再放标题行 */
 	main {
 		box-sizing: border-box;
 		height: 100vh; max-width: 1080px;
@@ -656,13 +748,35 @@
 		display: flex; flex-direction: column;
 	}
 
-	/* 示例入口：收进历史面板头部，与「清空」同组的小按钮，下拉向右展开 */
-	.preset-wrap { position: relative; margin-left: auto; }
-	.preset-toggle {
-		background: transparent; color: #5c6672; border: 1px solid #2c333d;
-		border-radius: 5px; padding: 1px 8px; font-size: 10px; cursor: pointer;
+	/* 自绘标题栏：通栏贴窗口顶部（负 margin 抵消 main padding），圆角与窗口一致 */
+	.titlebar {
+		flex: 0 0 auto;
+		display: flex; align-items: center; gap: 8px;
+		height: 34px;
+		margin: -8px -14px 8px;
+		padding: 0 8px 0 14px;
+		background: #171b22;
+		border-bottom: 1px solid #232a33;
+		border-radius: 10px 10px 0 0;
+		user-select: none;
+		cursor: default;
 	}
-	.preset-toggle:hover { color: #d7dce2; border-color: #46505c; }
+	.titlebar-name { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; color: #66707c; }
+	.titlebar-right { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+	.titlebar-btn {
+		background: transparent; color: #9aa4af; border: none; border-radius: 5px;
+		font-size: 12px; padding: 3px 9px; line-height: 1; cursor: pointer;
+		transition: color 0.12s, background 0.12s;
+	}
+	.titlebar-btn:hover { background: #242b35; color: #d7dce2; }
+	.titlebar-btn.icon { width: 28px; height: 20px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+	.titlebar-btn.icon.active { color: #7ee0a3; background: #1c2a24; }
+	.titlebar-btn.icon.close:hover { background: #5c2b27; color: #ff9d8a; }
+	/* 折叠态历史记录提示文字（标题栏内） */
+	.titlebar-hint { font-size: 12px; color: #9aa4af; margin-left: 4px; }
+
+	/* 示例入口（标题栏内），下拉向右展开 */
+	.preset-wrap { position: relative; }
 	.preset-menu {
 		position: absolute; top: calc(100% + 6px); right: 0; z-index: 20;
 		display: flex; flex-direction: column; gap: 2px;
@@ -805,18 +919,25 @@
 		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 	}
 
-	/* 历史记录面板：首行区块，占据剩余空间，至少两行高度（2×22px 行高 + 头部），内部滚动 */
+	/* 历史记录面板：占据剩余空间，至少两行高度（2×22px 行高 + 头部），内部滚动 */
 	.history {
 		flex: 1 1 auto; min-height: 76px;
 		display: flex; flex-direction: column;
-		background: #10131a; border: 1px solid #262c36;
+		margin-top: 4px; background: #10131a; border: 1px solid #262c36;
 		border-radius: 10px; padding: 8px 12px;
 	}
-	.hist-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; flex: 0 0 auto; }
+	.hist-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex: 0 0 auto; }
+	.hist-collapse-btn {
+		width: 18px; height: 18px; padding: 0;
+		display: inline-flex; align-items: center; justify-content: center;
+		background: transparent; border: none; border-radius: 4px;
+		color: #5c6672; cursor: pointer; transition: color 0.12s, background 0.12s;
+	}
+	.hist-collapse-btn:hover { color: #d7dce2; background: #242b35; }
 	.hist-title { font-size: 12px; color: #9aa4af; }
 	.hist-hint { font-size: 10px; color: #5c6672; }
 	.hist-clear {
-		background: transparent; border: 1px solid #2c333d;
+		margin-left: auto; background: transparent; border: 1px solid #2c333d;
 		color: #5c6672; border-radius: 5px; font-size: 10px; padding: 1px 8px;
 		cursor: pointer;
 	}

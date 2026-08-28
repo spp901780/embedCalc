@@ -15,8 +15,9 @@
         "title": "EmbedCalc",
         "width": 780,
         "height": 540,
-        "minWidth": 680,
-        "minHeight": 470
+        "minWidth": 540,
+        "minHeight": 300,
+        "decorations": false
       }
     ],
     "security": {
