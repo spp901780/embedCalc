@@ -147,17 +147,6 @@
 		copyTimer = setTimeout(() => { copied = null; }, 1200);
 	}
 
-	// ---------- 窗口置顶（Tauri 桌面端专属，浏览器中不显示按钮） ----------
-	const isTauri = '__TAURI_INTERNALS__' in window;
-	let pinned = $state(false);
-	async function togglePin() {
-		try {
-			const { getCurrentWindow } = await import('@tauri-apps/api/window');
-			await getCurrentWindow().setAlwaysOnTop(!pinned);
-			pinned = !pinned;
-		} catch { /* 权限或环境异常时保持原状态 */ }
-	}
-
 	// ---------- 词元短暂高亮（Ctrl+←/→ 跳词后提示目标） ----------
 	let flashToken = $state<number | null>(null);
 	let flashTimer: ReturnType<typeof setTimeout> | undefined;
@@ -468,44 +457,25 @@
 </svelte:head>
 
 <main>
-	<header>
-		<h1>EmbedCalc</h1>
-		<!-- 示例移入下拉菜单，为历史记录面板腾出空间 -->
-		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div class="preset-wrap" role="presentation" onmouseenter={openPreset} onmouseleave={scheduleClosePreset}>
-			<button
-				class="preset-toggle"
-				aria-expanded={presetMenuOpen}
-				onclick={() => { clearTimeout(presetCloseTimer); presetMenuOpen = !presetMenuOpen; }}
-			>示例 ▾</button>
-			{#if presetMenuOpen}
-				<div class="preset-menu">
-					{#each presets as [name, p]}
-						<button onclick={() => { expr = p; histPos = -1; cursor = p.length; presetMenuOpen = false; inputEl?.focus(); }}>{name}</button>
-					{/each}
-				</div>
-			{/if}
-		</div>
-		<!-- 窗口置顶：Tauri 桌面端专属（浏览器预览时隐藏） -->
-		{#if isTauri}
-			<button
-				class="pin-btn"
-				class:active={pinned}
-				aria-pressed={pinned}
-				title={pinned ? '取消窗口置顶' : '窗口置顶'}
-				onclick={togglePin}
-			>
-				<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
-			</button>
-		{/if}
-	</header>
-
-	<!-- 历史记录面板：位于输入框上方，结果随算式记录，向上滚动刷新 -->
-	<!-- 手动 Enter 保存的记录在上；Ctrl+↑ 浏览时末行自动缓存当前算式（草稿行，不入库） -->
-	<!-- 历史记录常驻面板：填充窗口剩余空间，优先保证输入框与进制框完整显示 -->
+	<!-- 紧凑布局：窗口标题由系统标题栏承担，内容区不再放标题行；示例入口收进历史面板头部 -->
 	<section class="history">
 		<div class="hist-head">
 			<span class="hist-title">历史记录 <span class="hist-hint">Enter 保存 · Ctrl+↑/↓ 翻阅 · 点击回填 · Esc 退出</span></span>
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div class="preset-wrap" role="presentation" onmouseenter={openPreset} onmouseleave={scheduleClosePreset}>
+				<button
+					class="preset-toggle"
+					aria-expanded={presetMenuOpen}
+					onclick={() => { clearTimeout(presetCloseTimer); presetMenuOpen = !presetMenuOpen; }}
+				>示例 ▾</button>
+				{#if presetMenuOpen}
+					<div class="preset-menu">
+						{#each presets as [name, p]}
+							<button onclick={() => { expr = p; histPos = -1; cursor = p.length; presetMenuOpen = false; inputEl?.focus(); }}>{name}</button>
+						{/each}
+					</div>
+				{/if}
+			</div>
 			{#if history.length > 0}
 				<button class="hist-clear" onclick={clearHistory}>清空</button>
 			{/if}
@@ -677,25 +647,24 @@
 		font-family: system-ui, sans-serif;
 	}
 	:global(html, body) { height: 100%; }
-	/* 视口高度弹性列布局：历史面板填充剩余空间，输入框与进制框优先完整显示 */
+	/* 视口高度弹性列布局：历史面板填充剩余空间，输入框与进制框优先完整显示（紧凑间距） */
+	/* 窗口标题由系统标题栏承担，内容区不再放标题行 */
 	main {
 		box-sizing: border-box;
 		height: 100vh; max-width: 1080px;
-		margin: 0 auto; padding: 16px 24px 14px;
+		margin: 0 auto; padding: 8px 14px 8px;
 		display: flex; flex-direction: column;
 	}
-	header { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; flex: 0 0 auto; margin-bottom: 12px; }
-	h1 { font-size: 20px; font-weight: 600; margin: 0; }
 
-	/* 示例下拉菜单（原预设按钮行已移除，为历史面板腾出空间） */
-	.preset-wrap { position: relative; }
+	/* 示例入口：收进历史面板头部，与「清空」同组的小按钮，下拉向右展开 */
+	.preset-wrap { position: relative; margin-left: auto; }
 	.preset-toggle {
-		background: #1d2128; color: #9aa4af; border: 1px solid #2c333d;
-		border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer;
+		background: transparent; color: #5c6672; border: 1px solid #2c333d;
+		border-radius: 5px; padding: 1px 8px; font-size: 10px; cursor: pointer;
 	}
 	.preset-toggle:hover { color: #d7dce2; border-color: #46505c; }
 	.preset-menu {
-		position: absolute; top: calc(100% + 6px); left: 0; z-index: 20;
+		position: absolute; top: calc(100% + 6px); right: 0; z-index: 20;
 		display: flex; flex-direction: column; gap: 2px;
 		min-width: 300px; padding: 6px;
 		background: #1a1f26; border: 1px solid #333a44; border-radius: 8px;
@@ -708,19 +677,7 @@
 	}
 	.preset-menu button:hover { background: #242b35; color: #d7dce2; }
 
-	/* 窗口置顶按钮（Tauri 桌面端）：右侧常驻，激活时绿色高亮 */
-	.pin-btn {
-		margin-left: auto;
-		width: 28px; height: 24px;
-		display: inline-flex; align-items: center; justify-content: center;
-		background: #1d2128; color: #9aa4af; border: 1px solid #2c333d;
-		border-radius: 6px; cursor: pointer;
-		transition: color 0.12s, border-color 0.12s, background 0.12s;
-	}
-	.pin-btn:hover { color: #d7dce2; border-color: #46505c; }
-	.pin-btn.active { color: #7ee0a3; border-color: #2e5540; background: #16211b; }
-
-	.input-row { display: flex; gap: 12px; align-items: flex-start; flex: 0 0 auto; margin-top: 14px; }
+	.input-row { display: flex; gap: 12px; align-items: flex-start; flex: 0 0 auto; margin-top: 10px; }
 
 	/* 自绘输入框 */
 	.expr-input {
@@ -744,6 +701,7 @@
 	/* 光标在数字内时，数字中心上方 ▲ / 下方 ▼（指示可按 ↑/↓ 切换进制） */
 	.base-hint {
 		position: absolute;
+		z-index: 3; /* 定位于输入框 padding 区内，抬高层级防止被相邻面板遮挡 */
 		height: 8px; line-height: 8px; /* 与 glyph 等高，垂直居中不受父行高影响 */
 		color: #4d9e6e;
 		transform: translateX(-50%); /* 水平居中于数字中心 */
@@ -847,18 +805,18 @@
 		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 	}
 
-	/* 历史记录面板：占据剩余空间，至少两行高度（2×22px 行高 + 头部），内部滚动 */
+	/* 历史记录面板：首行区块，占据剩余空间，至少两行高度（2×22px 行高 + 头部），内部滚动 */
 	.history {
 		flex: 1 1 auto; min-height: 76px;
 		display: flex; flex-direction: column;
-		margin-top: 14px; background: #10131a; border: 1px solid #262c36;
+		background: #10131a; border: 1px solid #262c36;
 		border-radius: 10px; padding: 8px 12px;
 	}
-	.hist-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; flex: 0 0 auto; }
+	.hist-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; flex: 0 0 auto; }
 	.hist-title { font-size: 12px; color: #9aa4af; }
 	.hist-hint { font-size: 10px; color: #5c6672; }
 	.hist-clear {
-		margin-left: auto; background: transparent; border: 1px solid #2c333d;
+		background: transparent; border: 1px solid #2c333d;
 		color: #5c6672; border-radius: 5px; font-size: 10px; padding: 1px 8px;
 		cursor: pointer;
 	}
@@ -895,8 +853,8 @@
 	.views {
 		flex: 0 0 auto;
 		box-sizing: border-box;
-		min-height: 152px;
-		margin-top: 14px;
+		min-height: 120px;
+		margin-top: 10px;
 		background: #10131a; border: 1px solid #262c36; border-radius: 10px;
 		padding: 16px 16px; overflow-x: auto;
 	}
@@ -935,6 +893,6 @@
 
 	footer {
 		flex: 0 0 auto;
-		margin-top: 14px; font-size: 12px; color: #5c6672; line-height: 1.6;
+		margin-top: 10px; font-size: 11px; color: #5c6672; line-height: 1.5;
 	}
 </style>
