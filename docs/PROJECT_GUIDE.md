@@ -12,16 +12,15 @@ EmbedCalc 是面向嵌入式开发场景的混合进制表达式计算器。它�
 用户输入
    │
    ▼
-src/routes/+page.svelte  ── 派生状态 ──► src/lib/calc.ts
+src/routes/+page.svelte  ── 派生状态 ──► src/lib/domain/evaluate.ts
    │                                      │
-   │                                      ├─ 词法分析
-   │                                      ├─ Pratt 表达式解析与 BigInt 求值
-   │                                      ├─ 多进制格式化
-   │                                      └─ 输入视图布局模型
+   │                                      ├─ core.ts：词法、Pratt、BigInt
+   │                                      ├─ format.ts：进制与补码格式化
+   │                                      └─ view.ts：光标与数字布局
    │
-   ├─ 输入、历史、结果和数字视图
-   ├─ 浏览器能力：localStorage、Clipboard API
-   └─ 桌面窗口能力（条件使用）
+   ├─ components/：原生编辑器、结果、数字检查、历史、标题栏
+   ├─ state/：编辑操作、历史导航、持久化、窗口适配
+   └─ workbench.css：深色工作台、焦点、响应式布局
                   │
                   ▼
           Tauri v2 WebView 壳
@@ -30,14 +29,14 @@ src/routes/+page.svelte  ── 派生状态 ──► src/lib/calc.ts
 
 ### 前端
 
-- [src/routes/+page.svelte](../src/routes/+page.svelte) 是当前唯一主界面，负责输入编辑、即时求值状态、错误呈现、历史记录、结果复制和多进制数字视图。组件使用 Svelte 5 runes 管理响应式状态。
-- 页面采用自绘输入框，而非原生 `<input>`：表达式按 token 分段着色，并由字符偏移模型绘制光标、选区、数字位号和跳词闪烁。输入、删除、粘贴、鼠标定位和键盘导航都在该组件中处理。
-- 页面样式也内嵌在该 Svelte 文件中，包含历史面板折叠、可调节左右分栏以及 Tauri 无边框窗口的自绘标题栏。
+- [src/routes/+page.svelte](../src/routes/+page.svelte) 使用 Svelte 5 runes 编排表达式、求值、历史和分栏状态，不包含解析器、存储实现、Tauri API 或完整编辑算法。
+- `components/ExpressionEditor.svelte` 用真实 textarea 承载文本、原生选区、输入法、剪贴板与普通编辑的系统撤销重做；辅助着色/位号层设为 `aria-hidden`，字体、padding、字符偏移与横向滚动一致。仅拦截既有进制/跳词/历史快捷键和 Enter/Esc；组合输入期间暂停特殊快捷键与自动拼接，换行统一为空格。
+- `ResultPanel`、`NumberInspector`、`HistoryPanel` 和 `Titlebar` 分别负责结果、nibble 联动、历史列表及示例/桌面控件。`workbench.css` 统一工作台样式；窄窗口上下堆叠并隐藏分隔条，短窗口自动折叠历史，长结果局部滚动，复制按钮始终可见。
 - [src/routes/+layout.ts](../src/routes/+layout.ts) 关闭 SSR。页面只在浏览器/WebView 中运行，因而直接使用 `window`、`document`、`localStorage` 等浏览器 API。
 
 ### 计算引擎
 
-[src/lib/calc.ts](../src/lib/calc.ts) 是无 UI 依赖的计算和显示辅助模块，主要职责如下：
+[src/lib/calc.ts](../src/lib/calc.ts) 保留原有导出 API，通过兼容入口重导出 `domain/core.ts`、`format.ts` 和 `view.ts`。这些纯领域模块没有 DOM、Svelte 或 Tauri 依赖，职责如下：
 
 1. `tokenize` 将字面量、运算符和括号变成 token，并记录源文本偏移；数字 token 附带 BigInt 值、书写进制和数字位起始位置。
 2. `parse` 用 Pratt 解析器按 C 风格优先级求值。支持一元 `+ - ~`，二元 `+ - * / % << >> & ^ |` 和括号。
@@ -49,11 +48,11 @@ src/routes/+page.svelte  ── 派生状态 ──► src/lib/calc.ts
 
 ## 一次输入的处理流程
 
-1. 用户编辑 `expr`，组件的派生状态对其调用 `tokenize`。
-2. 词法成功后，页面对尚未闭合的尾部输入作宽容处理：末尾二元运算符和末尾左括号会暂时从求值 token 中移除，以便用户输入过程中仍能看到前缀表达式的结果。
-3. `parse` 返回 BigInt，`buildLayout` 为输入中的数字构建多进制视图数据；右侧结果区域将最终值分别格式化为 hex、dec、bin。
-4. 词法或语法错误显示在视图上方。页面保留最近一次成功求值的布局与结果，避免输入过程中布局突然消失。
-5. 按 Enter 时，仅当当前表达式有成功结果才会写入历史。
+1. textarea 的 input/selection/composition 事件同步 `expr`、字符光标和选区；纯编辑操作位于 `state/editor.ts`，不会依赖 DOM 或 Svelte。
+2. `domain/evaluate.ts` 统一产生 `empty`、`preview`、`valid`、`error`。尾部运算符/左括号仍可求前缀预览，未闭合括号也标记为未完成；预览不替代上次有效值。
+3. 管线完成 BigInt 求值、数字布局和二进制显示范围检查，再把已验证的 binary 数据交给结果组件；模板不再调用可能抛出范围错误的格式化函数。
+4. 错误或没有可求值前缀时可保留上次有效结果，状态栏明确标记过期；空输入不显示旧值。状态栏通过 live region 通知计算状态与复制/存储失败。
+5. 仅 `valid` 允许 Enter 保存历史。`state/history.ts` 管理草稿与浏览导航，回填清除旧选区，连续点击记录不会覆盖原始草稿。
 
 ## 用户状态与持久化
 
@@ -80,6 +79,7 @@ src/routes/+page.svelte  ── 派生状态 ──► src/lib/calc.ts
 ```bash
 pnpm install
 pnpm dev       # Web 开发服务器，默认 http://localhost:1420
+pnpm test      # Node 22.15+：聚焦领域/状态回归
 pnpm check     # Svelte/TypeScript 检查
 pnpm build     # 静态前端构建
 pnpm tauri dev # Tauri 桌面开发运行
@@ -91,9 +91,14 @@ pnpm tauri build
 ```text
 src/
   app.html                 HTML 外壳
-  lib/calc.ts              词法、解析、求值、格式化及光标布局辅助
+  lib/calc.ts              兼容重导出入口
+  lib/domain/              core、format、view、evaluate 纯领域模块
+  lib/state/               editor、history、persistence、window 边界
+  lib/components/          ExpressionEditor、ResultPanel、NumberInspector、HistoryPanel、Titlebar
+  lib/workbench.css        工作台样式和响应式策略
   routes/+layout.ts        SPA/SSR 设置
-  routes/+page.svelte      主界面与交互
+  routes/+page.svelte      主界面编排
+ tests/                     原生 Node 回归测试与 TypeScript 加载钩子
 src-tauri/
   Cargo.toml               Rust/Tauri 依赖
   tauri.conf.json          桌面窗口与打包配置
@@ -111,10 +116,16 @@ packaging/rpm/              RPM 仓库配置及使用说明
 
 ## 阅读和维护建议
 
-- 修改运算符、优先级、字面量规则或求值限制时，从 `src/lib/calc.ts` 入手，再核对页面错误处理和帮助文字。
-- 修改光标定位、进制切换、token 高亮和位号显示时，同时检查 `calc.ts` 的偏移换算函数与 `+page.svelte` 的自绘输入实现；二者共享字符偏移约定。
-- 修改历史或布局持久化时，检查 `+page.svelte` 中对应的 localStorage 键及旧历史格式兼容逻辑。
-- 修改桌面窗口操作时，检查页面中的 Tauri API 调用、Tauri capability 权限和 `tauri.conf.json` 窗口设置。
+- 修改运算符、优先级、字面量规则或限制时，从 `domain/core.ts` 入手，再核对 `domain/evaluate.ts` 的错误与预览分类；`calc.ts` 仅为兼容重导出入口。
+- 修改光标定位、进制切换和位号时，检查 `domain/view.ts`、`state/editor.ts` 和 `ExpressionEditor.svelte`；二者的文本与高亮层必须共享字符偏移。
+- 修改持久化时，检查 `state/persistence.ts` 的键、类型检查、50 条限制和旧字符串格式兼容逻辑。写入失败仅提示，不回滚内存中的操作。
+- 修改桌面操作时，检查 `state/window.ts`、`Titlebar.svelte`、Tauri capability 权限和窗口配置；计时器、resize 监听及指针捕获应随组件生命周期清理。
+
+### 回归验证
+
+`pnpm test` 使用 Node 内建测试运行器及项目现有 TypeScript 转译器，不增加测试依赖。测试运行环境需 Node **22.15+**（`module.registerHooks`）；覆盖混合进制、字符、C 优先级、BigInt、补码、显示上限、状态分类、光标映射、进制记忆、两种二进制前缀拼接、旧历史、去重/上限、草稿恢复及存储失败。随后运行 `pnpm check` 和 `pnpm build`。
+
+浏览器回归应包含预览不能保存、过期值、原生选区与替换、撤销/重做、换行粘贴、组合输入、历史恢复、复制/存储拒绝、分隔条键盘与持久化、窄窗口及短高度、2048 位结果。自动触发 composition 事件不等同于真实操作系统输入法；触屏、屏幕阅读器和 Tauri WebView/原生窗口仍需对应设备实测。
 
 ## 当前实现边界
 

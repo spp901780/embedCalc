@@ -1,0 +1,261 @@
+:root { color-scheme: dark; --surface: #10131a; --border: #34404f; --focus: #7ec8ff; --text: #d7dce2; }
+
+	html {
+		border-radius: 10px; /* 圆角在根元素，滚动时保持 */
+		overflow-x: hidden; overflow-y: auto;
+	}
+	body {
+		margin: 0;
+		background: #14171c;
+		color: #d7dce2;
+		font-family: system-ui, sans-serif;
+	}
+	html, body { height: 100%; }
+	/* 视口高度弹性列布局：历史面板填充剩余空间，输入框与进制框优先完整显示（紧凑间距） */
+	/* 进制框内容过高时：先压缩历史面板至最小高度，之后允许整个页面垂直滚动 */
+	main {
+		box-sizing: border-box;
+		min-height: 100vh; max-width: 1080px;
+		margin: 0 auto; padding: 8px 14px 8px;
+		display: flex; flex-direction: column;
+		border-radius: 10px; overflow: visible;
+	}
+
+	/* 自绘标题栏：sticky 固定在视口顶部，页面滚动时保持不动 */
+	.titlebar {
+		position: sticky; top: 0; z-index: 10;
+		flex: 0 0 auto;
+		display: flex; align-items: center; gap: 8px;
+		height: 34px;
+		margin: -8px -14px 8px;
+		padding: 0 8px 0 14px;
+		background: #171b22;
+		border-bottom: 1px solid #232a33;
+		border-radius: 10px 10px 0 0;
+		user-select: none;
+		cursor: default;
+	}
+	.titlebar-name { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; color: #66707c; }
+	.titlebar-right { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+	.titlebar-btn {
+		background: transparent; color: #9aa4af; border: none; border-radius: 5px;
+		font-size: 12px; padding: 3px 9px; line-height: 1; cursor: pointer;
+		transition: color 0.12s, background 0.12s;
+	}
+	.titlebar-btn:hover { background: #242b35; color: #d7dce2; }
+	.titlebar-btn.icon { width: 28px; height: 20px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+	.titlebar-btn.icon.active { color: #7ee0a3; background: #1c2a24; }
+	.titlebar-btn.icon.close:hover { background: #5c2b27; color: #ff9d8a; }
+	/* 折叠态历史记录提示文字（标题栏内） */
+	.titlebar-hint { font-size: 12px; color: #9aa4af; margin-left: 4px; }
+
+	/* 示例入口（标题栏内），下拉向右展开 */
+	.preset-wrap { position: relative; }
+	.preset-menu {
+		position: absolute; top: calc(100% + 6px); right: 0; z-index: 20;
+		display: flex; flex-direction: column; gap: 2px;
+		min-width: 300px; padding: 6px;
+		background: #1a1f26; border: 1px solid #333a44; border-radius: 8px;
+		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+	}
+	.preset-menu button {
+		text-align: left; background: transparent; color: #9aa4af;
+		border: none; border-radius: 5px; padding: 6px 10px;
+		font-size: 12px; cursor: pointer; white-space: nowrap;
+	}
+	.preset-menu button:hover { background: #242b35; color: #d7dce2; }
+
+	.input-row { display: flex; gap: 1px; align-items: stretch; flex: 0 0 auto; margin-top: 10px; }
+
+
+	.splitter {
+		flex: 0 0 2px; margin: 0; padding: 0 4px;
+		display: flex; align-items: center; justify-content: center;
+		cursor: col-resize; z-index: 6;
+		touch-action: none;
+		outline: none;
+	}
+	.splitter-grip {
+		width: 2px; height: 20px; border-radius: 1px;
+		background: #333a44;
+		transition: background 0.15s, height 0.15s;
+	}
+	.splitter:hover .splitter-grip,
+	.splitter:focus-visible .splitter-grip,
+	.input-row.dragging .splitter-grip { background: #4d9e6e; height: 55%; }
+	.input-row.dragging { cursor: col-resize; user-select: none; }
+
+	.result {
+		flex: 1 1 0; min-width: 0; box-sizing: border-box;
+		min-height: 77px; position: relative;
+		display: flex; flex-direction: row; align-items: center; gap: 14px;
+		background: var(--surface); border: 1px solid #2e5540; border-radius: 8px;
+		padding: 8px 12px; overflow-x: auto; overflow-y: hidden;
+	}
+	/* 无结果时的占位框：仅保留极淡描边暗示分栏，撑满高度与输入框一致 */
+	.result-placeholder {
+		background: transparent;
+		border-color: #23293066;
+		border-style: dashed;
+	}
+	.res-lines { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; justify-content: center; }
+	/* 人性化大小附注：绝对定位于结果框右上角，层叠显示，不占布局空间 */
+	.res-size {
+		position: absolute; top: 8px; right: 12px;
+		padding-left: 14px; border-left: 1px solid #2e5540;
+		font-family: ui-monospace, 'SF Mono', Consolas, monospace;
+		font-size: 12px; line-height: 1.4; white-space: nowrap;
+		color: #66707c; background: #10131a80; padding-right: 2px;
+	}
+	.res-size .approx { margin-right: 4px; color: #4a5461; }
+	.res-size .size-val { color: #9aa4af; margin-right: 3px; }
+	.res-size .size-unit { font-size: 10px; letter-spacing: 0.05em; }
+	.res-line { display: flex; gap: 10px; align-items: baseline; margin: 1px 0; white-space: nowrap; min-height: 20px; }
+	/* 一键复制按钮：默认隐身，hover 该行浮现；复制成功 1.2s 内显示绿色 ✓ */
+	.copy-btn {
+		flex: 0 0 auto; align-self: center;
+		width: 28px; height: 28px; margin-left: 4px; padding: 0;
+		display: inline-flex; align-items: center; justify-content: center;
+		background: transparent; border: none; border-radius: 4px;
+		color: #5c6672; cursor: pointer; line-height: 1;
+		opacity: 1; transition: opacity 0.12s, color 0.12s, background 0.12s;
+	}
+	.res-line:hover .copy-btn, .copy-btn.done { opacity: 1; }
+	.copy-btn:hover { color: #d7dce2; background: #1e2530; }
+	.copy-btn.done { color: #7ee0a3; }
+	.copy-btn .ok { font-size: 12px; line-height: 1; }
+	.lbl { width: 26px; font-size: 10px; color: #66707c; text-align: right; flex: 0 0 auto; }
+	.res-line code {
+		font-family: ui-monospace, 'SF Mono', Consolas, monospace;
+		font-size: 13px; color: #e8edf2;
+		flex: 1 1 auto; min-width: 0; overflow-x: auto;
+	}
+	.res-line code.bin { font-size: 11px; color: #7ee0a3; letter-spacing: 0.02em; }
+
+	/* 报错信息浮动在进制框内顶部（不占布局空间），框高不变、输入框不跳动 */
+	.error-float { position: sticky; top: 0; z-index: 5; height: 0; overflow: visible; }
+	/* 报错时进制解析内容模糊+降透明度，避免与报错信息重叠、增强可读性 */
+	.views.has-error .band {
+		filter: blur(2px) saturate(0.6);
+		opacity: 0.3;
+		transition: filter 0.15s, opacity 0.15s;
+	}
+	.error {
+		display: inline-block;
+		padding: 8px 12px; font-size: 13px;
+		color: #ff9d8a; background: #2b1d1a; border: 1px solid #54322b;
+		border-radius: 6px; font-family: ui-monospace, monospace;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+	}
+
+	/* 历史记录面板：占据剩余空间，至少两行高度（2×22px 行高 + 头部），内部滚动 */
+	/* flex-shrink 允许被进制框压缩到 min-height，之后 main 允许页面滚动 */
+	.history {
+		flex: 1 1 auto; min-height: 76px;
+		display: flex; flex-direction: column;
+		margin-top: 4px; background: var(--surface); border: 1px solid #262c36;
+		border-radius: 10px; padding: 8px 12px;
+	}
+	.hist-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex: 0 0 auto; }
+	.hist-collapse-btn {
+		width: 18px; height: 18px; padding: 0;
+		display: inline-flex; align-items: center; justify-content: center;
+		background: transparent; border: none; border-radius: 4px;
+		color: #5c6672; cursor: pointer; transition: color 0.12s, background 0.12s;
+	}
+	.hist-collapse-btn:hover { color: #d7dce2; background: #242b35; }
+	.hist-title { font-size: 12px; color: #9aa4af; }
+	.hist-hint { font-size: 10px; color: #5c6672; }
+	.hist-clear {
+		margin-left: auto; background: transparent; border: 1px solid #2c333d;
+		color: #5c6672; border-radius: 5px; font-size: 10px; padding: 1px 8px;
+		cursor: pointer;
+	}
+	.hist-clear:hover { color: #d7dce2; border-color: #46505c; }
+	.hist-list {
+		list-style: none; margin: 0; padding: 0;
+		flex: 1 1 auto; min-height: 0; /* 填充剩余空间，内部滚动 */
+		overflow-y: auto; max-height: 180px;
+		display: flex; flex-direction: column; gap: 1px;
+	}
+	.hist-empty {
+		flex: 1 1 auto; min-height: 0;
+		padding: 6px 8px; font-size: 11px; color: #4a5461;
+	}
+	.hist-item {
+		display: flex; align-items: baseline; gap: 12px; width: 100%; text-align: left;
+		background: transparent; border: none; border-radius: 5px;
+		padding: 3px 8px; cursor: pointer;
+		font-family: ui-monospace, 'SF Mono', Consolas, monospace;
+		font-size: 12px; color: #8b95a1;
+	}
+	.hist-item:hover { background: #1a2029; color: #d7dce2; }
+	.hist-item.current { background: #1e2b25; color: #7ee0a3; }
+	.hist-expr { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.hist-res { flex: 0 0 auto; color: #5c6672; }
+	.hist-res.hex-res { color: #4f7ea8; } /* hex 结果用蓝调与表达式区分 */
+	.hist-item:hover .hist-res { color: #9aa4af; }
+	.hist-item.current .hist-res, .hist-item.current .hist-res.hex-res { color: #7ee0a3; }
+	/* Ctrl+↑ 浏览时自动缓存的当前算式行（仅临时，不写入持久历史） */
+	.hist-item.draft { border-top: 1px dashed #2c333d; margin-top: 2px; padding-top: 4px; }
+	.hist-draft-tag { flex: 0 0 auto; font-size: 10px; color: #4d9e6e; font-style: normal; }
+
+	/* 进制框：预留约 32 位数字高度（hex/dec 两行 + 4 行 bin），输入时框高不变、输入框不跳动 */
+	/* 内容完全展开不内部滚动；历史面板被压缩到极限后，由整个页面垂直滚动 */
+	.views {
+		flex: 0 0 auto;
+		box-sizing: border-box;
+		min-height: 120px;
+		margin-top: 10px;
+		background: var(--surface); border: 1px solid #262c36; border-radius: 10px;
+		padding: 16px 16px; overflow-x: auto;
+	}
+	.band {
+		display: flex; flex-wrap: wrap; align-items: stretch;
+		column-gap: 10px; row-gap: 22px;
+		font-family: ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, monospace;
+		font-size: 15px;
+	}
+	.band .num, .band .op { display: flex; flex-direction: column; justify-content: flex-end; }
+	.band .num {
+		border-radius: 6px; padding: 2px 4px;
+		transition: background 0.12s;
+	}
+	.band .num:hover { background: #1a2220; }
+	.band .num.hl { background: #1c2a24; box-shadow: inset 0 0 0 1px #2e5540; }
+	.band .row {
+		height: 1.55em; line-height: 1.55em;
+		text-align: right; white-space: pre;
+	}
+	.band .hex { color: #7ec8ff; }
+	.band .dec { color: #e8c07d; }
+	.band .spacer { flex: 1; min-height: 2px; }
+	.band .binline {
+		font-size: 0.72em; line-height: 1.5em; height: 1.5em;
+		letter-spacing: 0.02em;
+		text-align: right; white-space: pre;
+		color: #7ee0a3;
+		padding: 0; /* 水平方向不加 padding，保证 ch 对齐 */
+	}
+	.band .binline .sep { color: #3d5c4c; }
+	.band .binline span.hl, .band .row span.hl {
+		background: #2e5540; color: #d8ffe9; border-radius: 2px;
+	}
+	.band .op .row { color: #8b95a1; text-align: center; padding: 0 1px; }
+
+	footer {
+		flex: 0 0 auto;
+		margin-top: 10px; font-size: 11px; color: #5c6672; line-height: 1.5;
+	}
+
+ .status { font-size: 12px; color: #a6bbce; padding: 8px 0; }
+ .base-actions { display: flex; gap: 8px; }
+ .base-actions button { background: #1d2835; border: 1px solid #34404f; color: #ced9e6; padding: 5px 10px; border-radius: 5px; }
+ button:focus-visible, .splitter:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+ .copy-btn { opacity: 1; }
+ .result { overflow: auto; min-width: 0; max-height: 240px; flex-direction: column; align-items: stretch; gap: 4px; }
+ .res-size { position: static; align-self: flex-end; }
+ .res-lines { width: 100%; }
+ .views { max-height: 45vh; overflow: auto; }
+ @media (max-width: 640px) { .input-row { flex-direction: column; gap: 8px; } .splitter { display: none; } .result { width: auto; flex: none; } main { padding: 8px; } .titlebar { margin: -8px -8px 8px; padding: 0 8px; } .hist-head { flex-wrap: wrap; } }
+ @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
