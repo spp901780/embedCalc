@@ -22,7 +22,7 @@ xDEADBEEF + b110 ^ x2 << 2
 - **Token highlighting**: **Ctrl+←/→** jumps between tokens with a brief flash; linked nibble highlighting in the view below
 - **History**: **Enter** saves complete valid expressions; **Ctrl+↑/↓** browses history (current expression cached as a draft), **Esc** restores the draft. Clearing history requires confirmation; legacy entries remain compatible.
 - **Native editing**: textarea-backed input supports composition, native selection, clipboard operations and ordinary-edit undo/redo. Incomplete expressions are labeled as previews and cannot be saved; retained error-state results are explicitly marked as the last valid value.
-- **Dark workbench**: editor/results first, then number inspection and collapsible history. Narrow windows stack vertically. Base conversion has clickable controls; copy buttons are always visible and report success or failure.
+- **Dark workbench**: collapsible history above the compact editor/results, followed by number inspection. Empty input shows an expression hint. Narrow windows stack vertically. Base conversion has clickable controls; copy buttons are always visible and report success or failure.
 - **BigInt full precision**: No precision loss for 64-bit and larger integers, pure mathematical evaluation without bit-width truncation
 
 ### Notes

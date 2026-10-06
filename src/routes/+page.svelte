@@ -178,6 +178,22 @@
  function autoJoin() { const next = joinBinary(expr, cursor); expr = next.expr; cursor = next.cursor; }
  function cycleBase(dir: 1 | -1) { const next = changeBase(expr, cursor, dir, digitMem); expr = next.expr; cursor = next.cursor; }
  function wordJump(dir: -1 | 1) { const next = tokenJump(expr, cursor, dir); cursor = next.cursor; if (next.token !== null) flash(next.token); }
+ let statusEl: HTMLDivElement | undefined = $state();
+ let submitRejected = $state(false);
+ let rejectionTimer: ReturnType<typeof setTimeout> | undefined;
+ let rejectionAnimation: Animation | undefined;
+ function highlightRejectedSubmit() {
+  clearTimeout(rejectionTimer);
+  rejectionAnimation?.cancel();
+  submitRejected = true;
+  if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+   rejectionAnimation = statusEl?.animate([
+    { backgroundColor: '#7a392a', boxShadow: '0 0 0 2px #f09083' },
+    { backgroundColor: '#39251f', boxShadow: '0 0 0 0px transparent' }
+   ], { duration: 700, easing: 'ease-out' });
+  }
+  rejectionTimer = setTimeout(() => { submitRejected = false; }, 1000);
+ }
  function onKeydown(e: KeyboardEvent) {
   if (e.metaKey || e.altKey || e.isComposing) return;
   if (e.ctrlKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
@@ -188,12 +204,15 @@
   else if (e.ctrlKey && e.key === 'ArrowDown') { histNewer(); clearSel(); }
   else if (!e.ctrlKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) { cycleBase(e.key === 'ArrowUp' ? -1 : 1); clearSel(); }
   else if (e.key === 'Escape') { exitBrowse(); clearSel(); }
-  else if (e.key === 'Enter') { if (calc.status === 'valid' && calc.result !== null) saveToHistory(expr, calc.result); }
+  else if (e.key === 'Enter') {
+   if (calc.status === 'valid' && calc.result !== null) saveToHistory(expr, calc.result);
+   else highlightRejectedSubmit();
+  }
   else return;
   e.preventDefault();
  }
- function onNativeEdit() { histPos = -1; browsing = false; digitMem.clear(); autoJoin(); }
- onDestroy(() => { clearTimeout(copyTimer); clearTimeout(flashTimer);  });
+ function onNativeEdit() { submitRejected = false; rejectionAnimation?.cancel(); clearTimeout(rejectionTimer); histPos = -1; browsing = false; digitMem.clear(); autoJoin(); }
+ onDestroy(() => { clearTimeout(copyTimer); clearTimeout(flashTimer); clearTimeout(historyScrollTimer); clearTimeout(rejectionTimer); rejectionAnimation?.cancel(); });
 </script>
 
 <svelte:head>
@@ -203,14 +222,18 @@
 <main>
  <Titlebar {histCollapsed} expandHistory={() => { histManualCollapse = false; histAutoCollapsed = false; }} selectPreset={(value) => { expr = value; histPos = -1; browsing = false; cursor = value.length; clearSel(); digitMem.clear(); inputEl?.focus(); }} />
 
-	<!-- 历史面板：展开态显示完整面板(头部+列表)，折叠态完全隐藏(控制项已并入标题栏) -->
+ <HistoryPanel {histCollapsed} {history} {histPos} {browsing} {draft} bind:histListEl collapse={() => histManualCollapse = true} {clearHistory} {clickHistoryItem} restoreDraft={() => { histPos = -2; expr = draft; cursor = expr.length; clearSel(); inputEl?.focus(); }} />
 
- <div id="calc-status" class="status" role="status" aria-live="polite">
+ <div class="editor-toolbar">
+
+ <div id="calc-status" class="status" class:submit-rejected={submitRejected} bind:this={statusEl} role="status" aria-live="polite">
+  {#if submitRejected}<span>无法保存 · </span>{/if}
   {calc.status === 'empty' ? '输入算式开始计算' : calc.status === 'preview' ? '预览 · 算式未完成，不能保存' : calc.status === 'error' ? `错误 · ${calc.error}` : '有效 · Enter 保存'}
   {#if calc.result === null && displayedResult !== null} · 显示上次有效结果（已过期）{/if}
   {#if storageWarning} · {storageWarning}{/if}{#if copyError} · {copyError}{/if}{#if copyNotice} · {copyNotice}{/if}
  </div>
- <div class="base-actions"><button onclick={() => { cycleBase(-1); clearSel(); inputEl?.focus(); }}>↑ 向 hex 切换</button><button onclick={() => { cycleBase(1); clearSel(); inputEl?.focus(); }}>↓ 向 bin 切换</button></div>
+ <div class="base-actions"><button onclick={() => { cycleBase(-1); clearSel(); inputEl?.focus(); }}>↑ hex</button><button onclick={() => { cycleBase(1); clearSel(); inputEl?.focus(); }}>↓ bin</button></div>
+ </div>
 	<div class="input-row" bind:this={rowEl} class:dragging>
   <ExpressionEditor bind:expr bind:cursor bind:selAnchor bind:focused bind:inputEl ratio={splitRatio} flashToken={flashToken} invalid={calc.status === 'error'} onkeydown={onKeydown} onedit={onNativeEdit} />
 		<!-- 可拖动分隔条：调整输入框/结果框宽度比例，支持键盘 ←/→ 微调 -->
@@ -237,7 +260,6 @@
 	<!-- 进制框常驻渲染：报错时保留最后布局、顶部浮出报错条，保持框高不变，避免输入框上下跳动 -->
 	<NumberInspector layout={displayedLayout} {showError} {highlight} />
 
- <HistoryPanel {histCollapsed} {history} {histPos} {browsing} {draft} bind:histListEl collapse={() => histManualCollapse = true} {clearHistory} {clickHistoryItem} restoreDraft={() => { histPos = -2; expr = draft; cursor = expr.length; clearSel(); inputEl?.focus(); }} />
 
 	<footer>
 		光标移到数字内部，按 ↑/↓ 切换该数字进制·

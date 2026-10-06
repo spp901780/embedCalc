@@ -9,6 +9,9 @@
 			<div class="res-lines">
 				<div class="res-line">
 					<span class="lbl">hex</span><code>{hexText(r)}</code>
+     {#if humanSize(r)}
+      <span class="res-size" title="按 1024 进制换算的大小">≈ {humanSize(r)}</span>
+     {/if}
 					<button class="copy-btn" class:done={copied === 'hex'} aria-label="复制 hex 结果" title="复制 hex 结果" onclick={() => copyResult(hexText(r), 'hex')}>
 						{#if copied === 'hex'}<span class="ok">✓</span>{:else}<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5v-2A1.5 1.5 0 0 0 9 2H3.5A1.5 1.5 0 0 0 2 3.5V9a1.5 1.5 0 0 0 1.5 1.5h2"/></svg>{/if}
 					</button>
@@ -26,15 +29,6 @@
 					</button>
 				</div>
 			</div>
-			<!-- 结果 ≥ 1024 时右侧附注人性化大小（≈ 表示约等于，报错保留结果时同样跟随） -->
-			{#if humanSize(r)}
-				{@const size = humanSize(r)!}
-				<div class="res-size" title="按 1024 进制换算的大小">
-					<span class="approx">≈</span>
-					<span class="size-val">{size.slice(0, size.lastIndexOf(' '))}</span>
-					<span class="size-unit">{size.slice(size.lastIndexOf(' ') + 1)}</span>
-				</div>
-			{/if}
 			</div>
 		{:else}
 			<!-- 占位：保持 input-row 行高恒定，结果面板出现/消失时输入框不跳动 -->

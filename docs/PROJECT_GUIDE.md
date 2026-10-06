@@ -31,7 +31,7 @@ src/routes/+page.svelte  ── 派生状态 ──► src/lib/domain/evaluate.t
 
 - [src/routes/+page.svelte](../src/routes/+page.svelte) 使用 Svelte 5 runes 编排表达式、求值、历史和分栏状态，不包含解析器、存储实现、Tauri API 或完整编辑算法。
 - `components/ExpressionEditor.svelte` 用真实 textarea 承载文本、原生选区、输入法、剪贴板与普通编辑的系统撤销重做；辅助着色/位号层设为 `aria-hidden`，字体、padding、字符偏移与横向滚动一致。仅拦截既有进制/跳词/历史快捷键和 Enter/Esc；组合输入期间暂停特殊快捷键与自动拼接，换行统一为空格。
-- `ResultPanel`、`NumberInspector`、`HistoryPanel` 和 `Titlebar` 分别负责结果、nibble 联动、历史列表及示例/桌面控件。`workbench.css` 统一工作台样式；窄窗口上下堆叠并隐藏分隔条，短窗口自动折叠历史，长结果局部滚动，复制按钮始终可见。
+- `ResultPanel`、`NumberInspector`、`HistoryPanel` 和 `Titlebar` 分别负责结果、nibble 联动、历史列表及示例/桌面控件。`workbench.css` 统一工作台样式；历史位于输入框上方，输入区与三行结果框均至少 76px 高，结果内容与横向滚动条可按需撑高；大小估算内联于 hex 行右侧，不额外占行。无效、未完成或空算式按 Enter 时，上方提示高亮并说明无法保存，重复按键重新触发反馈，减少动态效果模式仅保留静态高亮；空输入以 placeholder 提示算式与保存操作。历史采用中性底色，输入采用蓝色边界，结果采用绿色边界；hex/dec/bin 分别统一为蓝/金/绿。窄窗口上下堆叠并隐藏分隔条，短窗口自动折叠历史并隐藏底部快捷键说明，长结果局部滚动，复制按钮始终可见。
 - [src/routes/+layout.ts](../src/routes/+layout.ts) 关闭 SSR。页面只在浏览器/WebView 中运行，因而直接使用 `window`、`document`、`localStorage` 等浏览器 API。
 
 ### 计算引擎

@@ -40,7 +40,7 @@
   {#each segments as segment}<span class={segment.kind} class:flash={segment.index === flashToken} class:active={segment.index === active?.index && focused}>{segment.text}</span>{/each}
   {#each tokens as token}{#if token.base === 2}{#each bitMarkPositions(token.text) as mark}<span class="bitmark-anchor" style="left: calc({token.start + mark.pos} * 1ch)"><small>{mark.count}</small></span>{/each}{/if}{/each}
  </div>
- <textarea bind:this={inputEl} aria-label="算式输入" aria-describedby="calc-status" aria-invalid={invalid} rows="1" wrap="off" spellcheck="false" autocapitalize="off" autocomplete="off"
+ <textarea placeholder="输入算式，如 (x1 << 5) | b101 · Enter 保存" bind:this={inputEl} aria-label="算式输入" aria-describedby="calc-status" aria-invalid={invalid} rows="1" wrap="off" spellcheck="false" autocapitalize="off" autocomplete="off"
   oninput={input} onselect={selection} onclick={selection} onkeyup={selection}
   onkeydown={(event) => { if (!composing && !event.isComposing) onkeydown(event); }}
   oncompositionstart={() => composing = true} oncompositionend={() => { composing = false; input(); }}
@@ -48,17 +48,18 @@
  ></textarea>
 </div>
 <style>
- .editor { position: relative; min-width: 0; min-height: 100px; overflow: hidden; border: 1px solid #34404f; border-radius: 8px; background: #10151d; }
+ .editor { position: relative; min-width: 0; min-height: 76px; box-sizing: border-box; overflow: hidden; border: 1px solid #34404f; border-radius: 8px; background: #10151d; }
  .editor:focus-within { border-color: #7ec8ff; box-shadow: 0 0 0 2px #7ec8ff22; }
  .editor.invalid { border-color: #f09083; }
- .display, textarea { box-sizing: border-box; margin: 0; padding: 23px 14px 24px; font: 17px/1.5 ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, monospace; letter-spacing: 0; tab-size: 4; white-space: pre; }
+ .display, textarea { box-sizing: border-box; margin: 0; padding: 10px 12px 20px; font: 17px/1.5 ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, monospace; letter-spacing: 0; tab-size: 4; white-space: pre; }
  .display { position: absolute; inset: 0 auto auto 0; pointer-events: none; color: #e8edf2; }
  textarea { position: absolute; inset: 0; width: 100%; height: 100%; resize: none; border: 0; outline: none; background: transparent; color: transparent; caret-color: #e8edf2; overflow: auto; }
  textarea::selection { background: #4277aa66; color: transparent; }
- .b16 { color: #7ee0a3; } .b2 { color: #bda1ee; } .b10 { color: #7ec8ff; } .op { color: #a6b1c0; }
+ textarea::placeholder { color: #8496ac; font: 12px/2.125 system-ui, sans-serif; opacity: 1; }
+ .b16 { color: #7ec8ff; } .b2 { color: #7ee0a3; } .b10 { color: #e8c07d; } .op { color: #c3cbd6; }
  .active { background: #7ec8ff15; } .flash { animation: flash 0.5s ease-out; }
  @keyframes flash { from { background: #7ec8ff55; } to { background: transparent; } }
- .bitmark-anchor { position: absolute; top: 52px; font: inherit; color: #8895a6; }
+ .bitmark-anchor { position: absolute; top: 35px; font: inherit; color: #8895a6; }
  small { font-size: 10px; }
  @media (max-width: 640px) { .editor { flex: none !important; width: 100%; } }
  @media (forced-colors: active) { .display { display: none; } textarea { color: CanvasText; caret-color: CanvasText; } }
