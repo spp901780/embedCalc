@@ -1,101 +1,61 @@
-# EmbedCalc — 嵌入式混合进制计算器
+# EmbedCalc：混合进制计算器
 
 **[English](README_EN.md)** | 简体中文
 
-为嵌入式开发者设计的混合进制计算器：同一算式中自由混用十六进制、十进制和二进制数，
-以 C 语言风格语法进行位运算求值。
+为寄存器、位掩码和地址算式提供即时计算与多进制对照。EmbedCalc 的重点是让你直接在算式里检查、切换和追踪每一个数字的位。
 
- 在线尝试 [https://spp901780.github.io/embedCalc/](https://spp901780.github.io/embedCalc/)
+**[在线使用 EmbedCalc](https://spp901780.github.io/embedCalc/)** · [下载桌面版](https://github.com/spp901780/embedCalc/releases)
 
-## 使用说明
+![EmbedCalc 界面截图](image/README/1787739503678.png)
 
-**输入算式，直接计算。** 十六进制加 `x`/`0x` 前缀，二进制加 `b`/`0b` 前缀，十进制直接写，
-支持 C 语言运算符 `+ - * / %` `& | ^ ~` `<< >>` `()`：
+## 独特功能
 
+- **一个算式，多进制对照**：结果同时显示 hex、dec、bin；输入框下方还会按算式中的每个数字展示对应的多进制值，方便逐项核对。
+- **原位切换数字进制**：把光标放进某个数字，按 **↑** 向 hex 切换、按 **↓** 向 bin 切换，中间经过 dec。数值保持不变，其他算式内容也不变。
+- **看清二进制位号**：二进制数字下方标出位号，最低位为 bit 0，并按 8 位分组；光标落在 hex 或 bin 数字内时，下方视图会高亮对应数字及 nibble（4 位）。
+- **按数字或运算符跳转**：按 **Ctrl+←/→** 在算式词元间跳转并短暂闪烁目标。
+- **历史浏览**：按 **Enter** 保存有效算式，按 **Ctrl+↑/↓** 翻阅历史。
+
+## 快速体验
+
+输入下面的 GPIO 配置算式：
+
+```text
+(x1 << 5) | (x3 << 10) | b101
 ```
+
+结果会立即显示为三种进制。把光标放进 `x3`，连续按两次 **↓**，它会依次切换为十进制和二进制，数值保持不变；光标所在位会同步反映在下方的数字视图中。你也可以点击“示例”菜单载入完整示例，再用 **Ctrl+←/→** 逐项检查。
+
+按 **Enter** 保存算式；之后用 **Ctrl+↑/↓** 翻看记录，按 **Esc** 回到刚才的输入。
+
+## 输入速查
+
+数字前缀采用熟悉的写法：十六进制用 `x`/`0x`，二进制用 `b`/`0b`，十进制直接写。运算符支持 `+ - * / %`、`<< >>`、`& | ^ ~` 和括号。
+
+```text
 xDEADBEEF + b110 ^ x2 << 2
+b1010_0011_1111       # 下划线用于分组
+'A' ^ x20             # 字符常量也可参与运算
 ```
 
-![1787739503678](image/README/1787739503678.png)
+优先级与 C 语言一致；需要改变计算顺序时使用括号。两个空格分隔的相邻二进制数字会自动拼接，例如 `b110 b11` 合并为 `b11011`。
 
-- **多进制并显**：结果同时显示 hex / dec / bin 三种进制
-- **逐数字进制切换**：光标移入数字，按 **↑/↓** 在 hex↔dec↔bin 间切换
-- **位号标注**：二进制数字下方自动标注每 8 位分组的位号（LSB = 0）
-- **词元高亮**：**Ctrl+←/→** 跳转词元并短暂闪烁，联动下方视图的 nibble 高亮
-- **历史记录**：**Enter** 保存算式，**Ctrl+↑/↓** 浏览历史（当前算式自动缓存到末行），**Esc** 退出
-- **BigInt 全精度**：64 位及以上整数无精度丢失，纯数学求值无位宽截断
+## 精度说明
 
-### 注意事项
+计算使用 BigInt，不会自动按 8、16、32 或 64 位截断。例如 `xFFFFFFFF + 1` 的结果是 `0x100000000`。如需模拟固定宽度寄存器，请显式加掩码：`x1234 & xFF` 保留低 8 位，`x12345678 & xFFFF` 保留低 16 位。
 
-- 计算结果无位宽截断，是精确的数学值（不限 32/64 位）
-- 二进制数字可以用 `_` 分隔方便阅读：`b1010_0011_1111`
-- 空格分隔的相邻二进制数会自动拼接：`b110 b11` 等于 `b11011`
-- 历史记录保存在本地，最多 50 条
+负数的二进制结果以补码显示。结果最多显示 2048 位，单次最多左移 2048 位。
 
----
+## 安装桌面版
 
-## 安装
+从 [GitHub Releases](https://github.com/spp901780/embedCalc/releases) 下载对应系统的安装包：
 
-从 [Release 页面](https://github.com/spp901780/embedCalc/releases) 下载对应平台的安装包：
+| 系统 | 安装包 |
+| --- | --- |
+| Linux x64 / ARM64 | `.deb`、`.rpm` |
+| macOS Apple Silicon / Intel | `.dmg` |
+| Windows x64 | `.msi`、`.exe` |
 
-| 平台 | 格式 |
-|------|------|
-| Linux (x64 / ARM) | `.deb`、`.rpm` |
-| macOS (Apple Silicon / Intel) | `.dmg` |
-| Windows (x64) | `.msi`、`.exe` |
+## 开发者
 
----
-
-## 技术栈
-
-| 层   | 技术                                  |
-| ---- | ------------------------------------- |
-| 前端 | Svelte 5（runes）、TypeScript、Vite 6 |
-| 桌面 | Tauri v2（Rust + WebView）            |
-| 构建 | pnpm、SvelteKit adapter-static        |
-
-## 项目结构
-
-```
-├── src/                      # Svelte 前端
-│   ├── app.html              # HTML 入口
-│   ├── lib/calc.ts           # 核心引擎：词法分析、Pratt 解析器、进制转换、布局构建
-│   └── routes/
-│       ├── +layout.ts        # SvelteKit 静态 adapter 配置
-│       └── +page.svelte      # 主页面：自绘输入框、历史记录、多进制视图、键盘交互
-├── src-tauri/                # Tauri 桌面端
-│   ├── Cargo.toml            # Rust 依赖
-│   ├── tauri.conf.json       # 窗口配置、版本号、打包目标（deb / rpm）
-│   ├── capabilities/         # Tauri v2 权限声明
-│   ├── icons/                # 应用图标（多平台）
-│   └── src/
-│       ├── main.rs           # Tauri 入口
-│       └── lib.rs            # Tauri 插件注册
-├── static/                   # 静态资源（favicon 等）
-├── image/                    # 图片资源（README 截图、应用图标源文件）
-├── .github/workflows/        # CI/CD（release.yml 发布流水线）
-└── .vscode/                  # VS Code 工作区配置
-```
-
-## 快速开始
-
-```bash
-# 前置条件：pnpm、Rust toolchain、Tauri CLI
-pnpm install
-
-# Web 开发模式（http://localhost:1420）
-pnpm dev
-
-# 类型检查
-pnpm check
-
-# 构建 Tauri 桌面应用（deb / rpm）
-pnpm tauri build
-
-# 开发模式启动 Tauri 桌面窗口
-pnpm tauri dev
-```
-
-## License
-
-MIT
+项目架构、计算流程和主要模块职责见[项目导读](docs/PROJECT_GUIDE.md)。许可证：MIT。
