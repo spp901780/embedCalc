@@ -18,6 +18,8 @@ xDEADBEEF + b110 ^ x2 << 2
 
 - **Multi-radix display**: Results shown simultaneously in hex / dec / bin
 - **Per-number radix switching**: Move cursor into a number, press **↑/↓** to switch between hex↔dec↔bin
+- **Radix previews**: While the editor is focused and the cursor is inside a number, faint previews above/below show the available ↑/↓ conversions. Previews are centered on the number and normally bounded by its width, with a two-character minimum for one-digit numbers. Ellipses are used only when at least three characters fit.
+- **Bit editing**: Click a binary bit in number inspection, or focus it and press Enter/Space, to toggle and recalculate immediately. The original radix is retained; character literals become decimal numbers. Padded leading bits are editable. Invalid/incomplete expressions disable editing; toggles do not automatically save history.
 - **Bit position annotations**: Binary numbers automatically show bit positions for each 8-bit group (LSB = 0)
 - **Token highlighting**: **Ctrl+←/→** jumps between tokens with a brief flash; linked nibble highlighting in the view below
 - **History**: **Enter** saves complete valid expressions; **Ctrl+↑/↓** browses history (current expression cached as a draft), **Esc** restores the draft. Clearing history requires confirmation; legacy entries remain compatible.

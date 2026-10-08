@@ -6,7 +6,7 @@
  import ResultPanel from '$lib/components/ResultPanel.svelte';
  import NumberInspector from '$lib/components/NumberInspector.svelte';
  import ExpressionEditor from '$lib/components/ExpressionEditor.svelte';
- import { joinBinary, changeBase, tokenJump } from '$lib/state/editor';
+ import { joinBinary, changeBase, tokenJump, flipBit } from '$lib/state/editor';
  import { older, newer, exit, recall, type HistoryNavigation } from '$lib/state/history';
  import { evaluate } from '$lib/domain/evaluate';
  import { HIST_KEY, RATIO_KEY, decodeHistory, decodeRatio, readStorage, writeStorage, appendHistory, resultIsHex, type HistEntry } from '$lib/state/persistence';
@@ -175,6 +175,13 @@
 
 	// ---------- 编辑 ----------
 
+ function onFlip(tokenIndex: number, bit: number) {
+  if (calc.status !== 'valid') return;
+  const next = flipBit(expr, cursor, tokenIndex, bit);
+  if (next.expr === expr) return;
+  expr = next.expr; cursor = next.cursor; histPos = -1; browsing = false;
+  clearSel(); digitMem.clear(); flash(tokenIndex);
+ }
  function autoJoin() { const next = joinBinary(expr, cursor); expr = next.expr; cursor = next.cursor; }
  function cycleBase(dir: 1 | -1) { const next = changeBase(expr, cursor, dir, digitMem); expr = next.expr; cursor = next.cursor; }
  function wordJump(dir: -1 | 1) { const next = tokenJump(expr, cursor, dir); cursor = next.cursor; if (next.token !== null) flash(next.token); }
@@ -258,11 +265,12 @@
 	</div>
 
 	<!-- 进制框常驻渲染：报错时保留最后布局、顶部浮出报错条，保持框高不变，避免输入框上下跳动 -->
-	<NumberInspector layout={displayedLayout} {showError} {highlight} />
+	<NumberInspector layout={displayedLayout} {showError} {highlight} editable={calc.status === 'valid'} onflip={onFlip} />
 
 
 	<footer>
-		光标移到数字内部，按 ↑/↓ 切换该数字进制·
+		点击检查区二进制位（或聚焦后 Enter/Space）翻转；仅完整有效算式可编辑，不自动保存 ·
+		光标移到数字内部，查看上下预览，按 ↑/↓ 切换该数字进制 ·
 		Shift+←/→ 或鼠标拖选选中文本 · Ctrl+←/→ 快速跳转词元 ·
 		Ctrl+↑/↓ 翻阅历史记录 · Enter 保存算式到历史 · Esc 退出历史浏览
 	</footer>

@@ -1,5 +1,31 @@
 import { tokenize, locateNum, numText, digitLen, digitToOffset, convertDigit, type Base } from '../calc';
+import { evaluate } from '../domain/evaluate';
 export interface Edit { expr: string; cursor: number }
+export function flipBit(expr: string, cursor: number, tokenIndex: number, bit: number): Edit {
+ const calc = evaluate(expr), token = calc.tokens?.[tokenIndex];
+ if (calc.status !== 'valid' || token?.kind !== 'num' || !Number.isInteger(bit) || bit < 0 || bit >= Math.ceil(token.value!.toString(2).length / 8) * 8) return { expr, cursor };
+ const text = numText(token.value! ^ (1n << BigInt(bit)), token.base!);
+ const next = expr.slice(0, token.start) + text + expr.slice(token.end);
+ let position = cursor;
+ if (cursor >= token.end) position += text.length - token.text.length;
+ else if (cursor > token.start) {
+  const info = locateNum(calc.tokens!, cursor);
+  position = info?.index === tokenIndex ? digitToOffset(tokenize(next)[tokenIndex], Math.min(info.digit, digitLen(tokenize(next)[tokenIndex]))) : token.start;
+ }
+ return { expr: next, cursor: Math.max(0, Math.min(position, next.length)) };
+}
+export function truncatePreview(text: string, width: number): string {
+ const limit = Math.max(2, Math.floor(width));
+ return text.length <= limit ? text : limit === 2 ? text.slice(0, 2) : text.slice(0, limit - 1) + '…';
+}
+export function basePreviews(expr: string, cursor: number): { start: number; width: number; up: string | null; down: string | null } | null {
+ try {
+  const info = locateNum(tokenize(expr), cursor);
+  if (!info) return null;
+  const { token } = info, order: Base[] = [16, 10, 2], index = order.indexOf(token.base!);
+  return { start: token.start, width: token.text.length, up: index > 0 ? numText(token.value!, order[index - 1]) : null, down: index < 2 ? numText(token.value!, order[index + 1]) : null };
+ } catch { return null; }
+}
 export function joinBinary(expr: string, cursor: number): Edit {
  try {
   for (;;) {
